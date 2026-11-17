@@ -1,0 +1,23 @@
+{
+  "name": "monokai",
+  "description": "Monokai and Monokai Dimmed themes plus Herdr's main layout in Monokai. Visual base for every other plugin.",
+  "repo": "https://github.com/pedroparra/herdr-monokai",
+  "ref": "main",
+  "commit": "a984dfd21d4c5b79eda99d1209ba62ce897e2186",
+  "license": "Apache-2.0",
+  "order": 10,
+  "vendor": [
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "RECIPE.md",
+    "themes",
+    "layouts"
+  ],
+  "install": {
+    "themes/monokai.json": "themes/monokai.json",
+    "themes/monokai-dimmed.json": "themes/monokai-dimmed.json",
+    "layouts/monokai-for-herdr.json": "layouts/monokai-for-herdr.json",
+    "layouts/monokai-for-herdr.svg": "layouts/monokai-for-herdr.svg"
+  }
+}

@@ -1,0 +1,158 @@
+diff -ruN a/xplat/herdr-core/src/hc/client.rs b/xplat/herdr-core/src/hc/client.rs
+--- a/xplat/herdr-core/src/hc/client.rs
++++ b/xplat/herdr-core/src/hc/client.rs
+@@ -211,6 +211,11 @@
+     fn send_text(&self, text: &str, pane_id: &str) -> Result<(), HerdrError> {
+         self.send(text, pane_id)
+     }
++
++    fn paste_submit(&self, text: &str, pane_id: &str) -> Result<(), HerdrError> {
++        self.call("terminal.send", json!({"terminal": Self::address(pane_id)?, "text": text, "force": true}), Some(self.send_timeout))?;
++        Ok(())
++    }
+ }
+ 
+ #[cfg(test)]
+diff -ruN a/xplat/herdr-core/src/question/mod.rs b/xplat/herdr-core/src/question/mod.rs
+--- a/xplat/herdr-core/src/question/mod.rs
++++ b/xplat/herdr-core/src/question/mod.rs
+@@ -786,11 +786,11 @@
+             return Err(unsupported(format!("question {}: option out of range", k + 1)));
+         }
+         let other = trim_ws_nl(a.other.as_deref().unwrap_or(""));
+-        if other.chars().any(is_newline) {
++        if other.chars().any(|c| is_newline(c) && c != '\n') {
+             return Err(unsupported(format!("question {}: line break in the text", k + 1)));
+         }
+         // A control key in the text (Tab closes Codex's notes) would act between two gated keys.
+-        if other.chars().any(is_control) {
++        if other.chars().any(|c| is_control(c) && c != '\n') {
+             return Err(unsupported(format!("question {}: a control character in the text", k + 1)));
+         }
+         // The empty field shows these: the gate could not tell the answer from no answer.
+@@ -804,12 +804,25 @@
+             return Err(unsupported(format!("question {}: one choice only", k + 1)));
+         }
+     }
+-    match q.agent.as_str() {
+-        "codex" => codex_steps(q, answers),
+-        "grok" => grok_steps(q, answers),
+-        "agy" => agy_steps(q, answers),
+-        _ => Ok(claude_steps(q, answers)),
++    let out = match q.agent.as_str() {
++        "codex" => codex_steps(q, answers)?,
++        "grok" => grok_steps(q, answers)?,
++        "agy" => agy_steps(q, answers)?,
++        _ => claude_steps(q, answers),
++    };
++    let enter = keys(&["Enter"]);
++    for (i, step) in out.iter().enumerate() {
++        if let Step::Text(t) = step {
++            if needs_paste(t) && out.get(i + 1) != Some(&enter) {
++                return Err(unsupported("line breaks, accented or non-Latin text are only sent for a single-choice answer"));
++            }
++        }
+     }
++    Ok(out)
++}
++
++fn needs_paste(text: &str) -> bool {
++    !text.is_ascii() || text.contains('\n')
+ }
+ 
+ /// The answer's free text, trimmed; None when empty.
+@@ -1263,7 +1276,12 @@
+     let mut focus = FieldFocus::Auto;
+     let mut row: Option<usize> = None;
+     let mut checked: BTreeSet<usize> = BTreeSet::new();
+-    for step in &steps {
++    let mut skip_enter = false;
++    for (index, step) in steps.iter().enumerate() {
++        if skip_enter {
++            skip_enter = false;
++            continue;
++        }
+         if q.agent == "codex" && *step == keys(&["Tab"]) && at < answers.len() && at < q.questions.len() {
+             row = Some(answers[at].picks.first().copied().unwrap_or(q.questions[at].options.len()));
+         }
+@@ -1287,7 +1305,14 @@
+         match step {
+             Step::Text(s) => {
+                 gated(screen, gate, pane_id, Some(&same))?;
+-                screen.send_keys(s.as_bytes(), pane_id)?; // typed as is: no Enter, not as a paste
++                if !needs_paste(s) {
++                    screen.send_keys(s.as_bytes(), pane_id)?; // typed as is: no Enter, not as a paste
++                } else if steps.get(index + 1) == Some(&keys(&["Enter"])) {
++                    screen.paste_submit(s, pane_id)?;
++                    skip_enter = true;
++                } else {
++                    return Err(unsupported("accented or non-Latin text is only sent for a single-choice answer"));
++                }
+                 // By step purpose, not by text (the typed text may equal a digit): Claude's first text step for
+                 // "Other" is its digit, which opens the row; the next text step is the typed text.
+                 let typed = if k < answers.len() { other_text(&answers[k]) } else { None };
+diff -ruN a/xplat/herdr-core/src/question/tests.rs b/xplat/herdr-core/src/question/tests.rs
+--- a/xplat/herdr-core/src/question/tests.rs
++++ b/xplat/herdr-core/src/question/tests.rs
+@@ -619,6 +619,27 @@
+     );
+ }
+ 
++#[test]
++fn question_keys_non_ascii_other() {
++    let opts2 = || vec![opt("A"), opt("B")];
++    let single = request("t", "claude", vec![question("H", "Pick one?", opts2(), false)]);
++    let multi = request("t", "claude", vec![question("H", "Pick some?", opts2(), true)]);
++    assert_eq!(
++        steps(&single, &[other(&[], "ação e você")]).ok(),
++        Some(vec![text("3"), text("ação e você"), key(&["Enter"])]),
++        "claude single Other with accents: the text is followed by Enter, so it can be pasted"
++    );
++    assert!(steps(&multi, &[other(&[0], "ação")]).is_err(), "claude multiSelect Other with accents: refused before any key");
++    assert!(steps(&multi, &[other(&[0], "acao")]).is_ok(), "claude multiSelect Other in ASCII: unchanged");
++    assert_eq!(
++        steps(&single, &[other(&[], "first line\nsecond line")]).ok(),
++        Some(vec![text("3"), text("first line\nsecond line"), key(&["Enter"])]),
++        "claude single Other with a line break: pasted, then Enter"
++    );
++    assert!(steps(&multi, &[other(&[0], "a\nb")]).is_err(), "claude multiSelect Other with a line break: refused before any key");
++    assert!(steps(&single, &[other(&[], "a\rb")]).is_err(), "a carriage return is still refused");
++}
++
+ /// checksQuestionKeys
+ #[test]
+ fn question_keys() {
+@@ -670,7 +691,7 @@
+             && fails(&single, &[ans(&[])])
+             && fails(&single, &[ans(&[5])])
+             && fails(&single, &[])
+-            && fails(&single, &[other(&[], "two\nlines")]),
++            && fails(&multi, &[other(&[0], "two\nlines")]),
+         "keys: unsupported answers throw before sending"
+     );
+     let screen = "←  ☐ H  ✔ Submit  →\nPick one?\n❯ 1. A\n  2. B\n  3. Type something.\n  4. Chat about this\nEnter to select";
+diff -ruN a/xplat/herdr-core/src/screen.rs b/xplat/herdr-core/src/screen.rs
+--- a/xplat/herdr-core/src/screen.rs
++++ b/xplat/herdr-core/src/screen.rs
+@@ -32,6 +32,9 @@
+     fn send_keys(&self, bytes: &[u8], pane_id: &str) -> Result<(), HerdrError>;
+     /// Types `text` and presses Enter.
+     fn send_text(&self, text: &str, pane_id: &str) -> Result<(), HerdrError>;
++    fn paste_submit(&self, text: &str, pane_id: &str) -> Result<(), HerdrError> {
++        self.send_text(text, pane_id)
++    }
+     /// Sleeps between screen polls (fakes skip it).
+     fn pause(&self, ms: u64) {
+         std::thread::sleep(std::time::Duration::from_millis(ms));
+diff -ruN a/xplat/herdr-core/tests/questions.rs b/xplat/herdr-core/tests/questions.rs
+--- a/xplat/herdr-core/tests/questions.rs
++++ b/xplat/herdr-core/tests/questions.rs
+@@ -136,7 +136,7 @@
+     let fails = |q: &QuestionRequest, ans: &[QuestionAnswer]| qa::steps(q, ans).is_err();
+     assert!(
+         fails(&cxm, &[a(&[0])]) && fails(&single, &[a(&[0, 1])]) && fails(&single, &[a(&[])]) && fails(&single, &[a(&[5])])
+-            && fails(&single, &[]) && fails(&single, &[o("two\nlines")]),
++            && fails(&single, &[]) && fails(&multi, &[o("two\nlines")]),
+         "keys: unsupported answers throw before sending"
+     );
+     let screen = "←  ☐ H  ✔ Submit  →\nPick one?\n❯ 1. A\n  2. B\n  3. Type something.\n  4. Chat about this\nEnter to select";

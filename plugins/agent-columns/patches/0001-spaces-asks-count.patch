@@ -1,0 +1,25 @@
+diff -ruN a/mods/agent-columns-spaces/main.js b/mods/agent-columns-spaces/main.js
+--- a/mods/agent-columns-spaces/main.js
++++ b/mods/agent-columns-spaces/main.js
+@@ -13,6 +13,13 @@
+ };
+ // Right-click opens Herdr's own context menu (the shipped `menu` mod): rename, close, worktrees...
+ const menu = (tab, target) => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab, target } });
++const waiting = (spaceId) => {
++  const st = shared("asks.state");
++  if (!st || !Array.isArray(st.asks)) return 0;
++  return st.asks.filter((a) => a.state === "pending" && a.space === spaceId).length;
++};
++const pill = (n) => div().flex_none().h(16).min_w(16).px(5).rounded(8).flex().items_center().justify_center()
++  .text_size(10).font_semibold().bg(theme().blocked).text_color(theme().background).child(String(n));
+ const color = (st) => (st ? theme()[st] : theme().dim);
+ const dot = (st) => div().size(7).rounded(7).bg(color(st)).flex_none();
+ // Small clickable glyph; stops the click so the row behind it doesn't also fire.
+@@ -35,6 +42,7 @@
+           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); menu("space", { id: sp.id }); })
+           .child(avatar(sp, i))
+           .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground).child(sp.name))
++          .when(waiting(sp.id) > 0, (el) => el.child(pill(waiting(sp.id))))
+           .child(btn(`sp-ren-${sp.id}`, "square-pen", () => run("space.rename", { id: sp.id })))
+           .child(btn(`sp-tab-${sp.id}`, "plus", () => run("tab.new", { space: sp.id }))),
+         ...sp.tabs.filter((tb) => !tb.settled).map((tb) =>

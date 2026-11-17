@@ -1,0 +1,12 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/better-changes/mods/better-changes/mod.json b/better-changes/mods/better-changes/mod.json
+--- a/better-changes/mods/better-changes/mod.json
++++ b/better-changes/mods/better-changes/mod.json
+@@ -1,7 +1,7 @@
+ {
+   "$schema": "./mod.schema.json",
+   "version": "2.5.0",
+-  "place": "right",
++  "place": "none",
+   "size": 368,
+   "title": "Better Changes",
+   "overlay": {

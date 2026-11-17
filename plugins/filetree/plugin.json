@@ -1,0 +1,19 @@
+{
+  "name": "filetree",
+  "description": "filetree: file tree with Tree and Recent views, git status, search and previews. Hosted in the base layout's files panel; file and folder icons come from the Better Icons plugin.",
+  "repo": "https://github.com/cybertron288/herdr-mods",
+  "ref": "main",
+  "commit": "34e7c3348e954fd0a1147b846898db8c3e37e526",
+  "license": "MIT",
+  "order": 50,
+  "vendor": [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "filetree/README.md",
+    "filetree/RECIPE.md",
+    "filetree/mods"
+  ],
+  "install": {
+    "filetree/mods/filetree": "mods/filetree"
+  }
+}

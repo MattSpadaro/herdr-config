@@ -1,0 +1,212 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/chat.js b/herdr-app/mods/flockbook/chat.js
+--- a/herdr-app/mods/flockbook/chat.js
++++ b/herdr-app/mods/flockbook/chat.js
+@@ -79,7 +79,7 @@
+     this.lastPoll = 0;
+     this.embed = props()?.embed === true;
+     this.barH = this.embed ? 0 : BAR_H;
+-    this.composer = new Composer(cx);
++    this.composer = new Composer(cx, { embed: this.embed });
+     this.composer.seen = (address) => { const f = this.feeds.get(address); return f ? { agent: f.agent ?? null, path: f.path ?? null } : null; };
+     this.top = {}; startTop(cx, this.top, { embed: this.embed });
+     this.appear = new Appear();
+@@ -108,9 +108,14 @@
+     if (a !== this.address) { this.switchTo(a); this.lastPoll = 0; cx.notify(); }
+     // Coming back to the chat screen (from Overview, Needs you, a shell tab) also opens at the end.
+     const screen = shownScreen();
+-    if (screen === "chat" && this.screen !== "chat") { this.follow = true; this.toNewest(); cx.notify(); }
++    if (screen === "chat" && this.screen !== "chat") {
++      this.follow = true; this.toNewest();
++      if (this.embed) this.composer.input.focus();
++      cx.notify();
++    }
+     this.screen = screen;
+     if (this.embed && screen !== "chat") return;
++    if (this.embed && this.composer.activityChanged(currentAgent())) cx.notify();
+     if (this.helper.changed()) cx.notify();
+     cx.spawn((cx) => this.composer.pollStatus(cx));
+     const agent = currentAgent();
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/composer.js b/herdr-app/mods/flockbook/composer.js
+--- a/herdr-app/mods/flockbook/composer.js
++++ b/herdr-app/mods/flockbook/composer.js
+@@ -2,12 +2,23 @@
+ // box to reply in. Enter sends through the sidecar's `send`; "+" or a drop attaches files.
+ import { div, svg } from "gpui-kit";
+ import { v_flex, h_flex, Textarea, TextareaState } from "gpui-base";
+-import { theme, panes, home, exec, window } from "herdr";
++import { theme, panes, home, exec, window, spaces } from "herdr";
+ import { agentName, icon, SPIN_MS } from "./state.js";
++import { openMenu } from "./menu.js";
+ import * as sidecar from "./sidecar.js";
+ import { setting } from "./config.js";
+ 
+ export const STATUS_MS = 5000;
++export const SENT_WAIT_MS = 15000;
++const TAG_ACTIONS = new Set(["model", "context", "cwd", "branch", "agent"]);
++
++export function elapsed(ms) {
++  const s = Math.max(0, Math.floor(ms / 1000));
++  if (s < 60) return `${s}s`;
++  const m = Math.floor(s / 60);
++  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
++  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
++}
+ 
+ // The pane of a terminal address: its folder and branch.
+ export function paneOf(address) {
+@@ -29,9 +40,9 @@
+   const out = (status?.tags ?? []).filter((t) => FROM_SIDECAR.includes(t.kind))
+     .map((t) => ({ kind: t.kind, text: t.text, warn: Boolean(t.warn) }));
+   const pane = agent ? paneOf(agent.address) : null;
+-  if (pane?.cwd) out.push({ kind: "cwd", text: shortPath(pane.cwd), warn: false });
++  if (pane?.cwd) out.push({ kind: "cwd", text: shortPath(pane.cwd), path: pane.cwd, warn: false });
+   if (pane?.branch) out.push({ kind: "branch", text: pane.branch, warn: false });
+-  if (agent) out.push({ kind: "agent", text: agentName(agent), warn: false });
++  if (agent) out.push({ kind: "agent", text: agentName(agent), address: agent.address, warn: false });
+   const seen = new Set();
+   return out.filter((t) => t.text && !seen.has(t.text) && seen.add(t.text));
+ }
+@@ -184,7 +195,11 @@
+ export class Composer {
+   // One input box, made here: herdr-app does not let a view make input state while it draws.
+   // Each agent's unsent text and files are kept in `drafts` and swapped in when the agent changes.
+-  constructor(_cx) {
++  constructor(_cx, { embed = false } = {}) {
++    this.embed = embed;
++    this.workStart = new Map();
++    this.sentAt = new Map();
++    this.activityKey = "";
+     this.input = TextareaState.new({ placeholder: "Reply to the agent", rows: 1 });
+     this.input.set_auto_grow?.(1, 8);
+     bindPaste(_cx);
+@@ -389,13 +404,77 @@
+         if (this.address === a && !b.input.value()) { b.setText(text); b.files = files; }
+         else if (this.address !== a) this.drafts.set(a, { text, files });
+         this.note = { text: moved ? sidecar.AGENT_CHANGED : (r.error?.message ?? done?.message) || "The message was not sent.", bad: true };
+-      } else if (done.result === "unconfirmed") {
+-        this.note = { text: "Sent. The agent did not confirm it yet.", bad: false };
++      } else {
++        if (this.embed) this.sentAt.set(a, Date.now());
++        if (done.result === "unconfirmed") this.note = { text: "Sent. The agent did not confirm it yet.", bad: false };
+       }
+     } finally { this.sending = false; cx.notify(); }
+   }
+ 
++  activity(agent) {
++    if (!this.embed || !agent) return null;
++    const a = agent.address;
++    if (agent.status === "blocked") {
++      this.sentAt.delete(a);
++      return { kind: "blocked", text: "Needs you" };
++    }
++    if (agent.status === "working") {
++      this.sentAt.delete(a);
++      if (!this.workStart.has(a)) this.workStart.set(a, Date.now());
++      const tab = spaces().flatMap((s) => s.tabs ?? []).find((x) => x.id === agent.tab);
++      const since = Number(tab?.working_since) || this.workStart.get(a);
++      return { kind: "working", text: `Working · ${elapsed(Date.now() - since)}` };
++    }
++    this.workStart.delete(a);
++    const sent = this.sentAt.get(a);
++    if (sent && Date.now() - sent < SENT_WAIT_MS) return { kind: "sent", text: "Sent, waiting for the agent" };
++    this.sentAt.delete(a);
++    return null;
++  }
++
++  activityChanged(agent) {
++    const x = this.activity(agent);
++    const key = x ? `${x.kind}|${x.text}` : "";
++    if (key === this.activityKey) return false;
++    this.activityKey = key;
++    return true;
++  }
++
++  activityRow(x, t) {
++    const color = x.kind === "blocked" ? t.blocked : x.kind === "working" ? t.working : t.muted;
++    return h_flex().id("activity").w_full().max_w(800).h(20).gap(6).items_center().text_size(12).text_color(color)
++      .child(x.kind === "blocked"
++        ? div().size(7).flex_none().rounded(4).bg(t.blocked)
++        : svg(icon("spinner")).size(11).spin(SPIN_MS))
++      .child(div().truncate().child(x.text));
++  }
++
++  prefill(text, cx) {
++    this.setText(text);
++    this.empty = false; this.slashClosed = null; this.pick = 0; this.top = 0; this.wheel = 0;
++    this.input.focus();
++    cx.spawn((cx) => this.loadCommands(cx));
++    cx.notify();
++  }
++
++  tagClick(x, cx) {
++    if (x.kind === "model") return this.prefill("/model ", cx);
++    if (x.kind === "context") return this.prefill("/compact ", cx);
++    if (x.kind === "cwd" && x.path) return openMenu([
++      { label: "Copy path", act: "copy", args: { text: x.path } },
++      { label: "Open in file manager", act: "open", args: { path: x.path } },
++    ]);
++    if (x.kind === "branch") return openMenu([{ label: "Copy branch name", act: "copy", args: { text: x.text } }]);
++    if (x.kind === "agent" && x.address) return openMenu([
++      { label: "Show terminal", act: "request", args: { kind: "show-terminal", address: x.address } },
++      { label: "Copy terminal address", act: "copy", args: { text: x.address } },
++    ]);
++    return null;
++  }
++
+   render(agent, t) {
++    const activity = this.activity(agent);
++    this.activityKey = activity ? `${activity.kind}|${activity.text}` : "";
+     const tags = tagsFor(agent, agent ? this.status.get(agent.address) : null);
+     const branch = tags.find((x) => x.kind === "branch");
+     const b = this.box(agent);
+@@ -416,11 +495,14 @@
+         .child(`${s.top + 1}–${s.top + shown.length} of ${s.items.length}`)
+       : null;
+     const empty = !b.input.value().trim() && !b.files.length;
+-    const tag = (x) => h_flex().h(22).px(8).gap(4).items_center().rounded(11).flex_none().text_size(11.5)
++    const tag = (x) => h_flex().id(`tag-${x.kind}`).h(22).px(8).gap(4).items_center().rounded(11).flex_none().text_size(11.5)
+       .bg(x.warn ? t.blocked : t.chrome).text_color(x.warn ? t.background : t.muted).border(1).border_color(x.warn ? t.blocked : t.border)
+       .when(x.kind === "branch", (el) => el.child(svg(icon("branch")).size(11)))
+       .when(x.kind === "cwd", (el) => el.child(svg(icon("folder")).size(11)))
+-      .child(div().max_w(220).truncate().child(x.text));
++      .child(div().max_w(220).truncate().child(x.text))
++      .when(this.embed && TAG_ACTIONS.has(x.kind), (el) => el.cursor_pointer()
++        .hover((s) => s.bg(t.hover).text_color(t.foreground))
++        .on_click((_e, cx) => this.tagClick(x, cx)));
+     const fileChip = (p, i) => h_flex().id(`file-${i}`).h(24).pl(8).pr(4).gap(4).items_center().rounded(8).bg(t.chrome).text_size(12).text_color(t.foreground)
+       .child(div().max_w(180).truncate().child(base(p)))
+       .child(div().id(`file-x-${i}`).size(16).flex().items_center().justify_center().rounded(4).text_color(t.muted).hover((s) => s.bg(t.hover))
+@@ -428,6 +510,7 @@
+     return v_flex().id("composer").w_full().px(16).pb(14).pt(6).gap(6).items_center()
+       .key_context(PASTE_CONTEXT)
+       .on_action(PASTE_ACTION, (_e, cx) => { const text = cx.read_from_clipboard?.(); cx.spawn((cx) => this.paste(cx, text)); })
++      .when(Boolean(activity), (el) => el.child(this.activityRow(activity, t)))
+       .when(setting("status_row") !== "hide", (el) => el.child(h_flex().id("tags").w_full().max_w(800).gap(5).items_center().overflow_x_scroll().children(tags.map(tag))))
+       .when(Boolean(s), (el) => el.child(v_flex().id("slash").w_full().max_w(800).p(4).gap(0).rounded(12).bg(t.raised)
+         .border(1).border_color(t.border).shadow_sm().on_scroll_wheel((e, cx) => this.slashWheel(e, cx))
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/menu.js b/herdr-app/mods/flockbook/menu.js
+--- a/herdr-app/mods/flockbook/menu.js
++++ b/herdr-app/mods/flockbook/menu.js
+@@ -2,11 +2,12 @@
+ // and its arguments, or one of the mod's own actions) because the popup is another copy of the mod.
+ import { div } from "gpui-kit";
+ import { v_flex, h_flex } from "gpui-base";
+-import { theme, props, run, openOverlay, closeOverlay, agents, shared, setShared } from "herdr";
++import { theme, props, run, openOverlay, closeOverlay, agents, shared, setShared, exec, window } from "herdr";
+ import { openTerminal, showScreen, shownScreen, showAgent, openTab, showSettings, KEY_SCREEN, KEY_REMOVE, machineOf } from "./state.js";
+ import { setting } from "./config.js";
+ 
+ const ROW_H = 28, PAD = 6, WIDTH = 220;
++export const KEY_REQUEST = "flockbook.request";
+ 
+ // Item: { label, cmd?, args?, act?, danger?, sep? }. `sep`: a line above it.
+ // `at`: where to open; "pointer" by default. A view in an overlay window passes the press's own
+@@ -33,6 +34,8 @@
+     case "remove-helper": setShared(KEY_REMOVE, a.machine); return showScreen("chat");
+     case "settings": return showSettings();
+     case "copy": return null;   // handled in the view: the clipboard needs cx
++    case "open": return exec(window()?.platform === "macos" ? "open" : "xdg-open", [a.path]).catch(() => null);
++    case "request": return setShared(KEY_REQUEST, { ...a, at: Date.now() });
+   }
+   return null;
+ }

@@ -1,0 +1,240 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/chat.js b/herdr-app/mods/flockbook/chat.js
+--- a/herdr-app/mods/flockbook/chat.js
++++ b/herdr-app/mods/flockbook/chat.js
+@@ -116,6 +116,7 @@
+     this.screen = screen;
+     if (this.embed && screen !== "chat") return;
+     if (this.embed && this.composer.activityChanged(currentAgent())) cx.notify();
++    if (this.embed) cx.spawn((cx) => this.composer.pollMode(cx));
+     if (this.helper.changed()) cx.notify();
+     cx.spawn((cx) => this.composer.pollStatus(cx));
+     const agent = currentAgent();
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/composer.js b/herdr-app/mods/flockbook/composer.js
+--- a/herdr-app/mods/flockbook/composer.js
++++ b/herdr-app/mods/flockbook/composer.js
+@@ -10,6 +10,49 @@
+ 
+ export const STATUS_MS = 5000;
+ export const SENT_WAIT_MS = 15000;
++const MODE_MS = 2000;
++export const MODES = [
++  { key: "default", label: "Default" },
++  { key: "acceptEdits", label: "Accept edits" },
++  { key: "plan", label: "Plan mode" },
++  { key: "auto", label: "Auto mode" },
++  { key: "bypass", label: "Bypass permissions" },
++];
++
++export function modeFromScreen(text) {
++  const tail = String(text ?? "").split("\n").map((l) => l.trim()).filter(Boolean).slice(-6).join("\n");
++  if (/plan mode on/i.test(tail)) return "plan";
++  if (/accept edits on/i.test(tail)) return "acceptEdits";
++  if (/auto mode on/i.test(tail)) return "auto";
++  if (/bypass permissions on/i.test(tail)) return "bypass";
++  if (/\? for shortcuts|esc to interrupt/i.test(tail)) return "default";
++  return null;
++}
++
++export function modeColor(key, t) {
++  return { plan: t.ansi4, acceptEdits: t.ansi5, auto: t.ansi3, bypass: t.ansi1 }[key] ?? null;
++}
++
++export const MODE_ACTION = "flockbook_mode_next";
++let modeBound = false;
++function bindMode(cx) {
++  if (modeBound || typeof cx?.bind_keys !== "function") return;
++  try {
++    cx.bind_keys([{ keystroke: "shift-tab", action: MODE_ACTION, context: `${PASTE_CONTEXT} > Input` }]);
++    modeBound = true;
++  } catch { }
++}
++
++let hcBin = null;
++async function hc(args) {
++  for (const bin of hcBin ? [hcBin] : ["hc", `${home()}/.local/bin/hc`]) {
++    try {
++      const r = await exec(bin, args);
++      if (r && r.code !== 127) { hcBin = bin; return r; }
++    } catch { }
++  }
++  return null;
++}
+ const TAG_ACTIONS = new Set(["model", "context", "cwd", "branch", "agent"]);
+ 
+ export function elapsed(ms) {
+@@ -274,6 +317,7 @@
+     bindPaste(_cx);
+     bindSlash(_cx);
+     bindMenu(_cx);
++    if (embed) bindMode(_cx);
+     // A paste that found no text, when the binding above is missing: the clipboard's image, if any.
+     this.input.on("paste_other", (_e, cx) => cx.spawn((cx) => this.paste(cx, undefined)));
+     // Enter sends. On Shift+Enter the box puts the new line in itself (at the cursor, over a selection);
+@@ -304,6 +348,11 @@
+     this.wheel = 0;             // wheel pixels not yet a whole row
+     this.slashClosed = null;    // the text Esc closed the list at
+     this.menuPath = null;
++    this.modes = new Map();
++    this.modeAt = 0;
++    this.modeBusy = false;
++    this.modeMenu = false;
++    this.switching = false;
+     this.draftStash = null;
+     this.menuIndex = 0;
+     this.menuTop = 0;
+@@ -333,7 +382,7 @@
+       const d = (a && this.drafts.get(a)) || { text: "", files: [] };
+       this.drafts.delete(a);
+       this.setText(d.text); this.files = d.files; this.empty = !d.text.trim();
+-      this.address = a; this.note = null; this.statusAt = 0; this.menuPath = null;
++      this.address = a; this.note = null; this.statusAt = 0; this.menuPath = null; this.modeMenu = false; this.modeAt = 0;
+     }
+     return a ? this : null;
+   }
+@@ -559,6 +608,7 @@
+ 
+   toggleMenu(cx) {
+     if (this.menuPath) return this.closeMenu(cx);
++    this.modeMenu = false;
+     this.menuPath = []; this.menuIndex = 0; this.menuTop = 0; this.menuWheelPx = 0;
+     this.input.focus();
+     cx.spawn((cx) => this.loadCommands(cx));
+@@ -664,6 +714,95 @@
+       .when(Boolean(more), (el) => el.child(more));
+   }
+ 
++  async readMode(address) {
++    const r = await hc(["read", address, "--lines", "8"]);
++    const m = r && r.code === 0 ? modeFromScreen(r.stdout) : null;
++    if (m) this.modes.set(address, m);
++    return m;
++  }
++
++  async pollMode(cx) {
++    const a = this.address;
++    if (!this.embed || !a || this.modeBusy || this.switching || Date.now() - this.modeAt < MODE_MS) return;
++    this.modeBusy = true; this.modeAt = Date.now();
++    try {
++      const before = this.modes.get(a);
++      const now = await this.readMode(a);
++      if (now && now !== before) cx.notify();
++    } finally { this.modeBusy = false; }
++  }
++
++  async nextMode(cx) {
++    if (!this.canSwitchMode()) {
++      if (this.embed && this.agent?.status === "working") {
++        this.note = { text: "The mode changes only while the agent is not working.", bad: false };
++        cx.notify();
++      }
++      return;
++    }
++    const a = this.address;
++    this.switching = true; this.modeMenu = false; this.note = null; cx.notify();
++    try {
++      const before = await this.readMode(a);
++      const r = await hc(["keys", a, "shift+tab"]);
++      if (!r || r.code !== 0) { this.note = { text: "The mode key did not reach the agent.", bad: true }; return; }
++      for (let j = 0; j < 5; j++) {
++        const m = await this.readMode(a);
++        if (m && m !== before) break;
++      }
++    } finally { this.switching = false; this.modeAt = 0; cx.notify(); }
++  }
++
++  canSwitchMode() {
++    const s = this.agent?.status;
++    return this.embed && Boolean(this.address) && !this.switching && s !== "working" && s !== "blocked";
++  }
++
++  toggleModeMenu(cx) {
++    if (!this.modeMenu && !this.canSwitchMode()) return;
++    this.modeMenu = !this.modeMenu;
++    if (this.modeMenu) this.menuPath = null;
++    cx.notify();
++  }
++
++  async setMode(target, cx) {
++    const a = this.address;
++    this.modeMenu = false;
++    if (!this.canSwitchMode()) { cx.notify(); return; }
++    this.switching = true; this.note = null; cx.notify();
++    const label = MODES.find((m) => m.key === target)?.label ?? target;
++    try {
++      for (let i = 0; i < MODES.length + 1; i++) {
++        const now = await this.readMode(a);
++        if (now === target) return;
++        if (this.address !== a || this.agent?.status === "working" || this.agent?.status === "blocked") {
++          this.note = { text: "The agent is busy; the mode was not changed further.", bad: true };
++          return;
++        }
++        const r = await hc(["keys", a, "shift+tab"]);
++        if (!r || r.code !== 0) { this.note = { text: "The mode key did not reach the agent.", bad: true }; return; }
++        for (let j = 0; j < 5; j++) {
++          const m = await this.readMode(a);
++          if (m && m !== now) break;
++        }
++      }
++      this.note = { text: `${label} is not in this agent's Shift+Tab cycle.`, bad: true };
++    } finally { this.switching = false; this.modeAt = 0; cx.notify(); }
++  }
++
++  modeView(t) {
++    const current = this.modes.get(this.address);
++    const row = (m) => h_flex().id(`mode-${m.key}`).w_full().h(ROW_PX).px(10).gap(10).items_center().rounded(8).flex_none()
++      .cursor_pointer().hover((st) => st.bg(t.hover))
++      .when(m.key === current, (el) => el.bg(t.hover))
++      .on_click((_e, cx) => cx.spawn((cx) => this.setMode(m.key, cx)))
++      .child(div().size(8).flex_none().rounded(4).bg(modeColor(m.key, t) ?? t.border))
++      .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(m.label))
++      .when(m.key === current, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child("current")));
++    return v_flex().id("mode-menu").w_full().max_w(800).p(4).gap(0).rounded(12).bg(t.raised)
++      .border(1).border_color(t.border).shadow_sm().children(MODES.map(row));
++  }
++
+   tagClick(x, cx) {
+     if (x.kind === "model") return this.prefill("/model ", cx);
+     if (x.kind === "context") return this.prefill("/compact ", cx);
+@@ -702,6 +841,10 @@
+         .child(`${s.top + 1}–${s.top + shown.length} of ${s.items.length}`)
+       : null;
+     const empty = !b.input.value().trim() && !b.files.length;
++    const working = this.embed && agent?.status === "working";
++    const modeKey = agent ? this.modes.get(agent.address) : null;
++    const boxColor = !this.embed ? null : working ? t.working : modeColor(modeKey, t);
++    const modeLabel = this.switching ? "Switching…" : working ? "Working" : MODES.find((m) => m.key === modeKey)?.label ?? "Mode";
+     const tag = (x) => h_flex().id(`tag-${x.kind}`).h(22).px(8).gap(4).items_center().rounded(11).flex_none().text_size(11.5)
+       .bg(x.warn ? t.blocked : t.chrome).text_color(x.warn ? t.background : t.muted).border(1).border_color(x.warn ? t.blocked : t.border)
+       .when(x.kind === "branch", (el) => el.child(svg(icon("branch")).size(11)))
+@@ -716,15 +859,17 @@
+         .on_click((_e, cx) => { this.files = this.files.filter((f) => f !== p); cx.notify(); }).child("×"));
+     return v_flex().id("composer").w_full().px(16).pb(14).pt(6).gap(6).items_center()
+       .key_context(PASTE_CONTEXT)
++      .on_action(MODE_ACTION, (_e, cx) => cx.spawn((cx) => this.nextMode(cx)))
+       .on_key_down((e, cx) => { if ((e?.key === "escape" || e?.key === "backspace") && this.menuEscape(cx)) cx.stop_propagation?.(); })
+       .on_action(PASTE_ACTION, (_e, cx) => { const text = cx.read_from_clipboard?.(); cx.spawn((cx) => this.paste(cx, text)); })
+       .when(Boolean(activity), (el) => el.child(this.activityRow(activity, t)))
+       .when(setting("status_row") !== "hide", (el) => el.child(h_flex().id("tags").w_full().max_w(800).gap(5).items_center().overflow_x_scroll().children(tags.map(tag))))
+       .when(Boolean(this.menuPath), (el) => el.child(this.menuView(t)))
++      .when(this.modeMenu, (el) => el.child(this.modeView(t)))
+       .when(Boolean(s), (el) => el.child(v_flex().id("slash").w_full().max_w(800).p(4).gap(0).rounded(12).bg(t.raised)
+         .border(1).border_color(t.border).shadow_sm().on_scroll_wheel((e, cx) => this.slashWheel(e, cx))
+         .children(shown.map(row)).when(Boolean(more), (l) => l.child(more))))
+-      .child(v_flex().id("box").w_full().max_w(800).rounded(16).bg(t.raised).border(1).border_color(t.border).shadow_sm().px(12).pt(10).pb(8).gap(6)
++      .child(v_flex().id("box").w_full().max_w(800).rounded(16).bg(t.raised).border(boxColor ? 2 : 1).border_color(boxColor ?? t.border).shadow_sm().px(12).pt(10).pb(8).gap(6)
+         .when(this.files.length > 0, (el) => el.child(h_flex().gap(6).flex_wrap().children(this.files.map(fileChip))))
+         .child(div().id("slash-keys").w_full()
+           .when(Boolean(s), (el) => el.key_context(SLASH_CONTEXT))
+@@ -750,6 +895,12 @@
+             .text_color(this.menuPath ? t.background : t.foreground)
+             .hover((s) => s.bg(t.accent).border_color(t.accent).text_color(t.background))
+             .on_click((_e, cx) => this.toggleMenu(cx)).child("Comandos"))
++          .when(this.embed, (el) => el.child(h_flex().id("mode-toggle").h(28).px(12).gap(6).flex_none().items_center().rounded(14)
++            .text_size(12).font_semibold().border(1).bg(this.modeMenu ? t.hover : t.chrome)
++            .border_color(boxColor ?? t.border).text_color(boxColor ?? t.muted)
++            .when(this.canSwitchMode(), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.toggleModeMenu(cx)))
++            .when(working || this.switching, (el) => el.child(svg(icon("spinner")).size(11).spin(SPIN_MS)))
++            .child(modeLabel)))
+           .child(div().flex_1())
+           .when(Boolean(branch), (el) => el.child(h_flex().gap(4).items_center().text_size(12).text_color(t.muted)
+             .child(svg(icon("branch")).size(12)).child(div().max_w(200).truncate().child(branch.text))))

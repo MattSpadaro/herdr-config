@@ -1,0 +1,8 @@
+{
+  "layout:asks": {
+    "cmd-shift-a": "tabs-asks.toggle"
+  },
+  "global": {
+    "cmd-shift-a": "tabs-asks.toggle"
+  }
+}

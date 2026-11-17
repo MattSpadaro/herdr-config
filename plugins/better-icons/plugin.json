@@ -1,0 +1,19 @@
+{
+  "name": "better-icons",
+  "description": "Better Icons: Material Icon Theme pack read by path by Better Changes. Draws nothing in the layout.",
+  "repo": "https://github.com/munza/herdr-mods",
+  "ref": "main",
+  "commit": "860626068cb7e32a1db96b2f66baadc271d5667a",
+  "license": "Apache-2.0 (icons MIT)",
+  "order": 60,
+  "vendor": [
+    "LICENSE",
+    "NOTICE",
+    "better-icons/README.md",
+    "better-icons/RECIPE.md",
+    "better-icons/mods"
+  ],
+  "install": {
+    "better-icons/mods/better-icons": "mods/better-icons"
+  }
+}

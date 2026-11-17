@@ -1,0 +1,330 @@
+{
+  "id": "root",
+  "type": "row",
+  "titlebar": "none",
+  "theme": "monokai",
+  "ui_font": "Geist",
+  "font_size": 13,
+  "terminal_padding": [
+    12,
+    10
+  ],
+  "gap": 0,
+  "resizable": true,
+  "divider": {
+    "width": 1,
+    "color": "border"
+  },
+  "children": [
+    {
+      "id": "sidebar",
+      "type": "column",
+      "size": {
+        "px": 268
+      },
+      "min": 44,
+      "max": 480,
+      "background": "chrome",
+      "resizable": false,
+      "children": [
+        {
+          "id": "brand",
+          "type": "block",
+          "size": {
+            "px": 46
+          },
+          "window_drag": true,
+          "content": {
+            "mod": "agent-columns-chrome"
+          }
+        },
+        {
+          "id": "sidebar-lists",
+          "type": "column",
+          "children": [
+            {
+              "id": "spaces",
+              "type": "block",
+              "size": {
+                "weight": 1
+              },
+              "min": 90,
+              "content": {
+                "mod": "agent-columns-spaces",
+                "props": {
+                  "newSpace": {
+                    "mod": "folder-picker",
+                    "width": 440,
+                    "height": 480
+                  }
+                }
+              }
+            },
+            {
+              "id": "agents",
+              "type": "block",
+              "size": {
+                "weight": 1
+              },
+              "min": 90,
+              "content": {
+                "mod": "agents"
+              }
+            }
+          ]
+        },
+        {
+          "id": "usage-strip",
+          "type": "block",
+          "size": {
+            "px": 104
+          },
+          "content": {
+            "mod": "agent-usage",
+            "props": {
+              "role": "strip",
+              "block": "usage-strip"
+            }
+          }
+        },
+        {
+          "id": "sidebar-footer",
+          "type": "block",
+          "size": {
+            "px": 69
+          },
+          "content": {
+            "mod": "agent-columns-chrome",
+            "props": {
+              "footer": true,
+              "usage": {
+                "label": "Usage",
+                "icon": "mods/agent-usage/gauge.svg",
+                "run": [
+                  { "name": "layout.select", "args": { "stack": "panel-body", "child": "usage" } },
+                  { "name": "layout.show", "args": { "id": "panel" } }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "work",
+      "type": "column",
+      "gap": 0,
+      "resizable": false,
+      "children": [
+        {
+          "id": "tabs",
+          "type": "block",
+          "size": {
+            "px": 42
+          },
+          "window_drag": true,
+          "content": {
+            "mod": "tabs-asks",
+            "props": {
+              "panels": [
+                {
+                  "id": "usage",
+                  "label": "Usage",
+                  "icon": "mods/agent-usage/gauge.svg"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "header-row",
+          "type": "row",
+          "size": {
+            "px": 48
+          },
+          "resizable": false,
+          "children": [
+            {
+              "id": "cols-header",
+              "type": "block",
+              "window_drag": true,
+              "content": {
+                "mod": "agent-columns",
+                "props": {
+                  "role": "header"
+                }
+              }
+            },
+            {
+              "id": "view-switch",
+              "type": "block",
+              "size": {
+                "px": 170
+              },
+              "window_drag": true,
+              "content": {
+                "mod": "chowdr-herdr-ctrl"
+              }
+            }
+          ]
+        },
+        {
+          "id": "work-body",
+          "type": "row",
+          "divider": {
+            "width": 1,
+            "color": "border"
+          },
+          "children": [
+            {
+              "id": "board-area",
+              "type": "column",
+              "gap": 0,
+              "resizable": false,
+              "children": [
+                {
+                  "id": "cols-cards",
+                  "type": "block",
+                  "size": {
+                    "px": 355
+                  },
+                  "border": {
+                    "width": 1,
+                    "color": "border"
+                  },
+                  "content": {
+                    "mod": "agent-columns"
+                  }
+                },
+                {
+                  "id": "workspace",
+                  "type": "column",
+                  "padding": [
+                    14,
+                    24
+                  ],
+                  "gap": 0,
+                  "resizable": false,
+                  "children": [
+                    {
+                      "id": "term-view",
+                      "type": "stack",
+                      "active": "live-terminals",
+                      "children": [
+                        {
+                          "id": "live-terminals",
+                          "type": "block",
+                          "background": "surface",
+                          "content": {
+                            "tab": "active",
+                            "pane": {
+                              "gap": 12,
+                              "radius": 7,
+                              "background": "surface",
+                              "lone": true,
+                              "border": {
+                                "width": 1,
+                                "color": "border"
+                              },
+                              "focus": {
+                                "width": 1,
+                                "color": "accent"
+                              },
+                              "header": {
+                                "content": {
+                                  "mod": "agent-columns",
+                                  "props": {
+                                    "role": "pane"
+                                  }
+                                },
+                                "height": 28,
+                                "position": "top",
+                                "reveal": "always"
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "id": "term-chat",
+                          "type": "block",
+                          "radius": 7,
+                          "border": {
+                            "width": 1,
+                            "color": "border"
+                          },
+                          "content": {
+                            "mod": "flockbook",
+                            "props": {
+                              "view": "chat",
+                              "embed": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "panel",
+              "type": "column",
+              "hidden": true,
+              "padding": 8,
+              "size": {
+                "px": 368
+              },
+              "min": 280,
+              "max": 900,
+              "children": [
+                {
+                  "id": "panel-body",
+                  "type": "stack",
+                  "active": "asks",
+                  "children": [
+                    {
+                      "id": "files",
+                      "type": "block",
+                      "content": {
+                        "mod": "filetree"
+                      }
+                    },
+                    {
+                      "id": "changes",
+                      "type": "block",
+                      "content": {
+                        "mod": "better-changes"
+                      }
+                    },
+                    {
+                      "id": "asks",
+                      "type": "block",
+                      "content": {
+                        "mod": "asks"
+                      }
+                    },
+                    {
+                      "id": "usage",
+                      "type": "block",
+                      "content": {
+                        "mod": "agent-usage",
+                        "props": {
+                          "role": "panel"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "traffic_lights": [
+    12,
+    16
+  ],
+  "preview": "layouts/chowdr-herdr-ctrl.svg"
+}

@@ -1,0 +1,86 @@
+diff -ruN a/xplat/herdr-core/src/keygate.rs b/xplat/herdr-core/src/keygate.rs
+--- a/xplat/herdr-core/src/keygate.rs
++++ b/xplat/herdr-core/src/keygate.rs
+@@ -70,6 +70,19 @@
+ /// True when the next key may go: the pane still shows the gate's agent (same kind and identity; fresh snapshot) and
+ /// `agent_ok` holds for it as it is now, then `ok` holds on a fresh screen read, then `allowed()`. The screen is read
+ /// last, right before the answer. No gate: true, nothing read.
++thread_local! {
++    static LAST_REFUSAL: std::cell::RefCell<Option<(&'static str, String)>> = const { std::cell::RefCell::new(None) };
++}
++
++fn refuse(why: &'static str, screen: String) -> bool {
++    LAST_REFUSAL.with(|r| *r.borrow_mut() = Some((why, screen)));
++    false
++}
++
++pub fn take_refusal() -> Option<(&'static str, String)> {
++    LAST_REFUSAL.with(|r| r.borrow_mut().take())
++}
++
+ pub fn passes<S: PaneScreen + ?Sized>(
+     screen: &S,
+     gate: Option<&KeyGate>,
+@@ -79,22 +92,23 @@
+ ) -> bool {
+     let Some(gate) = gate else { return true };
+     if let Some(seen) = &gate.agent {
+-        let Some(now) = fresh_agent(screen, seen, pane_id) else { return false };
++        let Some(now) = fresh_agent(screen, seen, pane_id) else { return refuse("agent", String::new()) };
+         if let Some(f) = agent_ok {
+             if !f(&now) {
+-                return false;
++                return refuse("agent", String::new());
+             }
+         }
+     }
+     if let Some(ok) = ok {
+         match screen.visible_text(pane_id) {
+             Ok(s) if ok(&s) => {}
+-            _ => return false,
++            Ok(s) => return refuse("screen", s),
++            Err(e) => return refuse("screen", e.to_string()),
+         }
+     }
+     if let Some(allowed) = &gate.allowed {
+         if !allowed() {
+-            return false;
++            return refuse("allowed", String::new());
+         }
+     }
+     true
+diff -ruN a/xplat/flockbook-modfeed/src/cards.rs b/xplat/flockbook-modfeed/src/cards.rs
+--- a/xplat/flockbook-modfeed/src/cards.rs
++++ b/xplat/flockbook-modfeed/src/cards.rs
+@@ -95,6 +95,16 @@
+     Done::new("box_not_empty", Some(BOX_NOT_EMPTY))
+ }
+ /// Why the gate said no: the agent changed, or it has no identity to check, which no retry fixes.
++fn note_refusal(text: &str) {
++    let base = std::env::var_os("XDG_CACHE_HOME")
++        .map(std::path::PathBuf::from)
++        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache")));
++    if let Some(dir) = base.map(|b| b.join("flockbook")) {
++        let _ = std::fs::create_dir_all(&dir);
++        let _ = std::fs::write(dir.join("gate-refusal.txt"), text);
++    }
++}
++
+ pub fn refused(pane: &Pane) -> Done {
+     if pane.agent.as_ref().map(KeyGate::has_identity) == Some(true) {
+         agent_changed()
+@@ -312,7 +322,13 @@
+     match r {
+         Ok(Some(d)) => d,
+         Ok(None) => Done::new("sent", None),
+-        Err(HerdrError::KeyGateStop) => refused(pane),
++        Err(HerdrError::KeyGateStop) => match keygate::take_refusal() {
++            Some(("screen", shown)) => {
++                note_refusal(&format!("{q:#?}\n----- screen -----\n{shown}"));
++                Done::new("changed", Some("the question on screen did not look as the card expects; nothing more was sent"))
++            }
++            _ => refused(pane),
++        },
+         Err(HerdrError::Question(QuestionFailure::NotOnScreen)) => Done::new("changed", Some("the question is not on screen")),
+         Err(e) => Done::new("failed", Some(&e.to_string())),
+     }

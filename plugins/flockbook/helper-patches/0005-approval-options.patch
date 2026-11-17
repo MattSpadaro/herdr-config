@@ -1,0 +1,192 @@
+diff -ruN a/xplat/herdr-core/src/approval/tests.rs b/xplat/herdr-core/src/approval/tests.rs
+--- a/xplat/herdr-core/src/approval/tests.rs
++++ b/xplat/herdr-core/src/approval/tests.rs
+@@ -927,3 +927,21 @@
+     let ap = respond_if_open(&f, "w1:p1", &id, true, "claude", true, None, Some(&KeyGate::new(Some(seen), Some(yes()))));
+     assert!(ap == Ok(false) && f.sent().is_empty(), "r5 approve: the agent is not blocked now (stale 'blocked' from the check) -> no key");
+ }
++
++#[test]
++fn box_options_lists_every_option() {
++    let b = screen_box(&notice_prompt()).expect("the prompt box is read");
++    let want = vec![
++        ("1".to_string(), "Yes".to_string()),
++        ("2".to_string(), "Yes, and always allow access to /repo from this project".to_string()),
++        ("3".to_string(), "Yes, and switch to auto mode · auto mode handles these prompts for you".to_string()),
++        ("4".to_string(), "No".to_string()),
++    ];
++    assert_eq!(box_options(&b), want, "every option row, the focus mark dropped");
++    let wrapped = notice_prompt().replace(
++        "   2. Yes, and always allow access to /repo from this project",
++        "   2. Yes, and always allow access to /repo\n      from this project",
++    );
++    let b = screen_box(&wrapped).expect("the wrapped prompt box is read");
++    assert_eq!(box_options(&b)[1].1, "Yes, and always allow access to /repo from this project", "a wrapped option joins its lines");
++}
+diff -ruN a/xplat/herdr-core/src/approval.rs b/xplat/herdr-core/src/approval.rs
+--- a/xplat/herdr-core/src/approval.rs
++++ b/xplat/herdr-core/src/approval.rs
+@@ -278,6 +278,21 @@
+     Some(ScreenBox { header, tool, command: command.iter().map(ungutter).collect::<Vec<_>>().join("\n"), lines: bx, clipped: false })
+ }
+ 
++pub fn box_options(b: &ScreenBox) -> Vec<(String, String)> {
++    static OPT: OnceLock<Regex> = OnceLock::new();
++    let Some(ask) = b.lines.iter().rposition(|l| l.contains(PROMPT_MARKER)) else { return vec![] };
++    let mut out: Vec<(String, String)> = vec![];
++    for l in &b.lines[ask + 1..] {
++        if let Some(c) = re(&OPT, r"^(\d)\.\s+(.+)$").captures(l) {
++            out.push((c[1].to_string(), trim_ws(&c[2]).to_string()));
++        } else if let Some(last) = out.last_mut() {
++            last.1.push(' ');
++            last.1.push_str(trim_ws(l));
++        }
++    }
++    out
++}
++
+ /// Id of the permission prompt on screen: a hash of the tool name and the whole box. None: no prompt.
+ pub fn screen_prompt(screen: &str) -> Option<String> {
+     let b = screen_box(screen)?;
+@@ -523,6 +538,44 @@
+     Ok(true)
+ }
+ 
++#[allow(clippy::too_many_arguments)]
++pub fn respond_choice_if_open<S: PaneScreen + ?Sized>(
++    screen: &S,
++    pane_id: &str,
++    prompt: &str,
++    choice: &str,
++    label: &str,
++    agent_kind: &str,
++    blocked: bool,
++    pending: Option<&PermissionRequest>,
++    gate: Option<&KeyGate>,
++) -> Result<bool, HerdrError> {
++    if agent_kind == "grok" || choice.len() != 1 || !choice.chars().all(|c| c.is_ascii_digit()) {
++        return Ok(false);
++    }
++    let mut blocked = blocked;
++    if let Some(seen) = gate.and_then(|g| g.agent.as_ref()) {
++        let Some(now) = fresh_agent(screen, seen, pane_id) else { return Ok(false) };
++        blocked = now.status == AgentStatus::Blocked;
++    }
++    let Some(now) = approval_state(screen, pane_id, agent_kind, blocked, pending) else { return Ok(false) };
++    if outcome(true, Some(prompt), Some(&now), true) != (Outcome::Send { allow: true }) {
++        return Ok(false);
++    }
++    if let Some(allowed) = gate.and_then(|g| g.allowed.as_ref()) {
++        if !allowed() {
++            return Ok(false);
++        }
++    }
++    let text = screen.visible_text(pane_id)?;
++    let Some(b) = screen_box(&text) else { return Ok(false) };
++    if b.clipped || !box_options(&b).iter().any(|(k, l)| k == choice && l == label) {
++        return Ok(false);
++    }
++    screen.send_keys(choice.as_bytes(), pane_id)?;
++    Ok(true)
++}
++
+ /// Grok's prompt: each key only while that prompt is on screen with the focus where the key needs it, read right
+ /// before the key. Deny: Down, wait for the focus on "No, reject", Enter. `Ok(false)`: no answer was given.
+ pub fn respond_grok<S: PaneScreen + ?Sized>(
+diff -ruN a/xplat/flockbook-modfeed/src/cards.rs b/xplat/flockbook-modfeed/src/cards.rs
+--- a/xplat/flockbook-modfeed/src/cards.rs
++++ b/xplat/flockbook-modfeed/src/cards.rs
+@@ -19,6 +19,12 @@
+ use std::time::SystemTime;
+ 
+ #[derive(Serialize, Clone, Debug, PartialEq, Default)]
++pub struct CardOption {
++    pub key: String,
++    pub label: String,
++}
++
++#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+ pub struct Card {
+     #[serde(rename = "type")]
+     pub t: &'static str,
+@@ -35,6 +41,8 @@
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub detail: Option<String>,
+     #[serde(skip_serializing_if = "Option::is_none")]
++    pub options: Option<Vec<CardOption>>,
++    #[serde(skip_serializing_if = "Option::is_none")]
+     pub tool: Option<String>,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub question: Option<FeedQuestion>,
+@@ -209,6 +217,13 @@
+     match now {
+         Some(Current::Approval { id, title, command, tool, pending }) => {
+             let detail = pending.map(|p| p.detail).filter(|d| !d.trim().is_empty());
++            let options = screen
++                .visible_text(&pane.id)
++                .ok()
++                .and_then(|s| approval::screen_box(&s))
++                .filter(|b| !b.clipped)
++                .map(|b| approval::box_options(&b).into_iter().map(|(key, label)| CardOption { key, label }).collect::<Vec<_>>())
++                .filter(|o| !o.is_empty());
+             let claimed = answered.is_claimed(&pane.id, &id, &tool, &command, blocked, SystemTime::now());
+             Card {
+                 t: "card",
+@@ -217,6 +232,7 @@
+                 title: Some(title),
+                 command: Some(rows::cut(&command, rows::TEXT_CAP)),
+                 detail: detail.map(|d| rows::cut(&d, rows::TEXT_CAP)),
++                options,
+                 tool: Some(tool),
+                 answered: claimed.then_some(true),
+                 ..Default::default()
+@@ -238,6 +254,19 @@
+ }
+ 
+ pub fn approve<S: PaneScreen + ?Sized>(pane: &Pane, screen: &S, log: Option<&Path>, request: &str, allow: bool, cache: Option<&Path>) -> Done {
++    approve_choice(pane, screen, log, request, allow, None, cache)
++}
++
++#[allow(clippy::too_many_arguments)]
++pub fn approve_choice<S: PaneScreen + ?Sized>(
++    pane: &Pane,
++    screen: &S,
++    log: Option<&Path>,
++    request: &str,
++    allow: bool,
++    choice: Option<(&str, &str)>,
++    cache: Option<&Path>,
++) -> Done {
+     let changed = || Done::new("changed", Some("the approval on screen is not the one shown"));
+     let Some(agent) = &pane.agent else { return changed() };
+     let Some(Current::Approval { id, command, tool, pending, .. }) = current(pane, screen, log) else { return changed() };
+@@ -257,7 +286,11 @@
+         Claim::Busy => return busy(),
+     }
+     // The screen is read again right before the key, and the key goes only while the box is still this id.
+-    match approval::respond_if_open(screen, &pane.id, &id, allow, &agent.kind, blocked, pending.as_ref(), Some(&gate(pane))) {
++    let sent = match choice {
++        Some((key, label)) if allow => approval::respond_choice_if_open(screen, &pane.id, &id, key, label, &agent.kind, blocked, pending.as_ref(), Some(&gate(pane))),
++        _ => approval::respond_if_open(screen, &pane.id, &id, allow, &agent.kind, blocked, pending.as_ref(), Some(&gate(pane))),
++    };
++    match sent {
+         Ok(true) => Done::new("sent", None),
+         Ok(false) => {
+             answered.release(&pane.id, &id);
+diff -ruN a/xplat/flockbook-modfeed/src/cli.rs b/xplat/flockbook-modfeed/src/cli.rs
+--- a/xplat/flockbook-modfeed/src/cli.rs
++++ b/xplat/flockbook-modfeed/src/cli.rs
+@@ -193,7 +193,12 @@
+                     let (Some(request), true) = (opt("--request"), has("--allow") != has("--deny")) else {
+                         return r.fail("usage", "approve needs --request <id> and one of --allow, --deny");
+                     };
+-                    let d = cards::approve(&found.pane, &client, log, &request, has("--allow"), cache_url);
++                    let (choice, label) = (opt("--choice"), opt("--label"));
++                    let pick = match (&choice, &label) {
++                        (Some(c), Some(l)) => Some((c.as_str(), l.as_str())),
++                        _ => None,
++                    };
++                    let d = cards::approve_choice(&found.pane, &client, log, &request, has("--allow"), pick, cache_url);
+                     r.out.emit(&d);
+                     return r.finish(true);
+                 }

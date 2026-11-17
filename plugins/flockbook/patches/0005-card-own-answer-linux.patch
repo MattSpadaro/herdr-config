@@ -1,0 +1,100 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/cards.js b/herdr-app/mods/flockbook/cards.js
+--- a/herdr-app/mods/flockbook/cards.js
++++ b/herdr-app/mods/flockbook/cards.js
+@@ -7,6 +7,7 @@
+ import { shared, setShared } from "herdr";
+ import { icon } from "./state.js";
+ import * as sidecar from "./sidecar.js";
++import { withoutEnter } from "./composer.js";
+ 
+ export const CARD_MS = 1500;
+ const KEY_FULL = "flockbook.card.full"; // { address, card }: that full card
+@@ -25,7 +26,7 @@
+   const out = [];
+   for (let i = 0; i < (question?.questions ?? []).length; i++) {
+     const p = [...(picks.get(i) ?? [])].sort((a, b) => a - b);
+-    const other = (others.get(i) ?? "").trim();
++    const other = (others.get(i) ?? "").replace(/\r\n?/g, "\n").trim();
+     if (!p.length && !other) return null;
+     out.push(other ? { picks: p, other } : { picks: p });
+   }
+@@ -52,9 +53,27 @@
+     this.canFocus = () => true;   // the chat says no while you type a reply
+     this.byAgent = new Map();
+     this.address = null;   // whose card the boxes belong to now
++    this.typing = new Set();
+     this.others = Array.from({ length: MAX_QUESTIONS }, (_v, qi) => {
+       const input = TextareaState.new({ placeholder: "Or type your own answer", rows: 1 });
++      input.set_auto_grow?.(1, 6);
++      input.on("focus", () => { this.typing.add(qi); });
++      input.on("blur", () => { this.typing.delete(qi); });
++      const typed = ["", ""];
++      input.on("submit", (ev, cx) => {
++        if (ev?.shift) return;
++        const now = input.value();
++        const text = withoutEnter(now, now === typed[1] ? typed[0] : typed[1]);
++        if (text !== now) input.set_value(text);
++        typed[0] = typed[1] = text;
++        const e = this.byAgent.get(this.address); if (!e) return;
++        e.others.set(qi, text);
++        this.pressEnter(cx, this.address);
++        cx.notify();
++      });
+       input.on("change", (_e, cx) => {
++        const v = input.value();
++        if (v !== typed[1]) { typed[0] = typed[1]; typed[1] = v; }
+         const e = this.byAgent.get(this.address); if (!e) return;
+         const was = Boolean((e.others.get(qi) ?? "").trim());
+         e.others.set(qi, input.value());
+@@ -121,7 +140,21 @@
+ 
+   // 1-9 picks an option of the first question without a pick (a multi-choice one: toggles);
+   // on an approval 1 allows once and 2 denies. Enter sends the answer. True when it took the key.
++  pressEnter(cx, address) {
++    const en = this.byAgent.get(address), c = en?.card;
++    if (!c || en.sending || c.kind === "approval" || c.unread > 0) return false;
++    const qs = c.question?.questions ?? [];
++    const step = en.step ?? 0;
++    if (step < qs.length - 1) {
++      if (!answered(en, step)) return false;
++      en.step = step + 1; cx.notify(); return true;
++    }
++    if (answersFor(c.question, en.picks, en.others)) { cx.spawn((cx) => this.answer(cx, address)); return true; }
++    return false;
++  }
++
+   key_down(e, cx, address) {
++    if (this.typing.size) return false;
+     const en = this.byAgent.get(address), c = en?.card;
+     if (!c || en.sending) return false;
+     const n = digit(e);
+@@ -132,16 +165,7 @@
+       return false;
+     }
+     const qs = c.question?.questions ?? [];
+-    if (e?.key === "enter") {
+-      if (c.unread > 0) return false;
+-      const step = en.step ?? 0;
+-      if (step < qs.length - 1) {
+-        if (!answered(en, step)) return false;
+-        en.step = step + 1; cx.notify(); return true;
+-      }
+-      if (answersFor(c.question, en.picks, en.others)) { cx.spawn((cx) => this.answer(cx, address)); return true; }
+-      return false;
+-    }
++    if (e?.key === "enter") return this.pressEnter(cx, address);
+     if (n === null) return false;
+     const qi = Math.min(en.step ?? 0, qs.length - 1);
+     // The number after the options moves the keyboard into the own-answer box.
+@@ -260,9 +284,9 @@
+       const keep = (_ev, cx) => cx.stop_propagation();
+       if (input) sec.child(h_flex().id(`${id}-q${qi}-other`).px(10).py(7).gap(10).items_center().rounded(8)
+         .bg(own ? t.selected : t.background).border(1).border_color(own ? t.accent : t.border)
+-        .on_mouse_down("left", keep).on_key_down(keep)
++        .on_mouse_down("left", keep)
+         .child(div().size(14).flex_none().rounded(qq.multi ? 3 : 7).border(1).border_color(own ? t.accent : t.muted).bg(own ? t.accent : t.background))
+-        .child(div().flex_1().min_w(0).child(Textarea.new(input).w_full().text_size(13)))
++        .child(div().flex_1().min_w(0).child(Textarea.new(input).w_full().min_h(22).text_size(13)))
+         .when((qq.options ?? []).length < 9, (el) => el.child(hint((qq.options ?? []).length + 1))));
+       box.child(sec);
+     });

@@ -1,0 +1,32 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns-spaces/main.js b/mods/agent-columns-spaces/main.js
+--- a/mods/agent-columns-spaces/main.js
++++ b/mods/agent-columns-spaces/main.js
+@@ -1,6 +1,6 @@
+ import { View, div, svg } from "gpui-kit";
+ import { h_flex, v_flex } from "gpui-base";
+-import { spaces, theme, run, shared, openOverlay } from "herdr";
++import { spaces, theme, run, shared, openOverlay, props } from "herdr";
+ 
+ // Same avatar colors as the shipped spaces sidebar (it stores the pick in "space.colors").
+ const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
+@@ -11,6 +11,11 @@
+   return div().size(18).flex_none().rounded(5).bg(fill).flex().items_center().justify_center()
+     .text_size(10.5).font_bold().text_color("#ffffff").child([...sp.name][0]?.toUpperCase() ?? "?");
+ };
++const newSpace = () => {
++  const o = props()?.newSpace;
++  if (o && typeof o.mod === "string") openOverlay({ mod: o.mod, kind: "popup", width: o.width ?? 420, height: o.height ?? 480, props: o.props ?? {} });
++  else run("space.new", {});
++};
+ // Right-click opens Herdr's own context menu (the shipped `menu` mod): rename, close, worktrees...
+ const menu = (tab, target) => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab, target } });
+ const waiting = (spaceId) => {
+@@ -34,7 +39,7 @@
+     return v_flex().size_full().bg(t.chrome).px(8).pb(8).gap(2).overflow_y_scrollbar()
+       .child(h_flex().px(8).pb(6).items_center().text_size(11.5).text_color(t.dim)
+         .child(div().flex_1().child("Spaces"))
+-        .child(btn("new-space", "plus", () => run("space.new", {}))))
++        .child(btn("new-space", "plus", newSpace)))
+       .children(spaces().flatMap((sp, i) => [
+         h_flex().id(`sp-${sp.id}`).items_center().gap(7).px(8).py(5).rounded(6)
+           .bg(sp.active ? t.selected : t.chrome).hover((s) => s.bg(t.hover)).cursor_pointer()

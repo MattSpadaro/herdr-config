@@ -1,0 +1,12 @@
+diff -ruN a/keys.json b/keys.json
+--- a/keys.json
++++ b/keys.json
+@@ -3,6 +3,7 @@
+     "cmd-shift-a": "tabs-asks.toggle"
+   },
+   "global": {
+-    "cmd-shift-a": "tabs-asks.toggle"
++    "cmd-shift-a": "tabs-asks.toggle",
++    "ctrl-shift-a": "tabs-asks.toggle"
+   }
+ }

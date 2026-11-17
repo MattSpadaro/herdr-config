@@ -1,0 +1,275 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/composer.js b/herdr-app/mods/flockbook/composer.js
+--- a/herdr-app/mods/flockbook/composer.js
++++ b/herdr-app/mods/flockbook/composer.js
+@@ -115,6 +115,20 @@
+   } catch { /* no keys for the list: a click on a row and Enter still complete */ }
+ }
+ 
++export const MENU_CONTEXT = "FlockbookMenu";
++export const MENU = { up: "flockbook_menu_up", down: "flockbook_menu_down", open: "flockbook_menu_open", right: "flockbook_menu_right",
++  back: "flockbook_menu_back", close: "flockbook_menu_close" };
++let menuBound = false;
++function bindMenu(cx) {
++  if (menuBound || typeof cx?.bind_keys !== "function") return;
++  try {
++    cx.bind_keys([["up", MENU.up], ["down", MENU.down], ["enter", MENU.open], ["tab", MENU.open], ["right", MENU.right],
++      ["left", MENU.back], ["escape", MENU.close], ["backspace", MENU.close]]
++      .map(([keystroke, action]) => ({ keystroke, action, context: `${MENU_CONTEXT} > Input` })));
++    menuBound = true;
++  } catch { }
++}
++
+ // The name being typed after a leading "/", or null: the text has a space (or is not a "/" name).
+ export function slashQuery(text) {
+   const m = /^\/([^\s]*)$/.exec(String(text ?? ""));
+@@ -171,6 +185,61 @@
+ }
+ const ROW_PX = 30;   // a list row; the wheel moves the window a row per ROW_PX
+ 
++const MENU_GROUPS = [
++  { key: "builtin", label: "Built-in" },
++  { key: "personal", label: "Personal" },
++  { key: "project", label: "Project" },
++  { key: "plugins", label: "Plugins", nested: true },
++  { key: "mcps", label: "MCPs", nested: true },
++];
++
++export function slashGroups(list) {
++  const out = { builtin: [], personal: [], project: [], plugins: new Map(), mcps: new Map() };
++  const nest = (kind, owner, c, label) => {
++    if (!out[kind].has(owner)) out[kind].set(owner, []);
++    out[kind].get(owner).push({ ...c, label });
++  };
++  for (const c of list ?? []) {
++    const name = String(c?.name ?? "");
++    if (!name) continue;
++    if (name.startsWith("mcp__")) {
++      const [server, ...rest] = name.slice(5).split("__");
++      nest("mcps", server || "mcp", c, rest.join("__") || name);
++    } else if (c.source === "plugin") {
++      const [owner, ...rest] = name.split(":");
++      nest(/mcp/i.test(owner) ? "mcps" : "plugins", owner, c, rest.join(":") || name);
++    } else if (c.source === "builtin") out.builtin.push({ ...c, label: name });
++    else if (c.source === "project") out.project.push({ ...c, label: name });
++    else out.personal.push({ ...c, label: name });
++  }
++  return out;
++}
++
++export function menuEntries(groups, path) {
++  const [group, owner] = path;
++  if (!group) {
++    return MENU_GROUPS.map((g) => {
++      const v = groups[g.key];
++      const count = g.nested ? v.size : v.length;
++      return count ? { kind: "group", key: g.key, label: g.label, count } : null;
++    }).filter(Boolean);
++  }
++  const v = groups[group];
++  if (!v) return [];
++  if (v instanceof Map && !owner) {
++    return [...v.entries()].sort(([a], [b]) => a.localeCompare(b))
++      .map(([key, items]) => ({ kind: "group", key, label: key, count: items.length }));
++  }
++  const items = v instanceof Map ? v.get(owner) ?? [] : v;
++  return [...items].sort((a, b) => a.label.localeCompare(b.label)).map((c) => ({ kind: "cmd", cmd: c }));
++}
++
++export function menuTitle(path) {
++  const [group, owner] = path;
++  const g = MENU_GROUPS.find((x) => x.key === group);
++  return [g?.label ?? group, owner].filter(Boolean).join(" / ");
++}
++
+ 
+ // What `paste-image` found to attach: copied files, else the saved image. Empty: paste the text.
+ export function pastedFiles(lines) {
+@@ -204,6 +273,7 @@
+     this.input.set_auto_grow?.(1, 8);
+     bindPaste(_cx);
+     bindSlash(_cx);
++    bindMenu(_cx);
+     // A paste that found no text, when the binding above is missing: the clipboard's image, if any.
+     this.input.on("paste_other", (_e, cx) => cx.spawn((cx) => this.paste(cx, undefined)));
+     // Enter sends. On Shift+Enter the box puts the new line in itself (at the cursor, over a selection);
+@@ -232,6 +302,10 @@
+     this.top = 0;               // the first shown match
+     this.wheel = 0;             // wheel pixels not yet a whole row
+     this.slashClosed = null;    // the text Esc closed the list at
++    this.menuPath = null;
++    this.menuIndex = 0;
++    this.menuTop = 0;
++    this.menuWheelPx = 0;
+     this.drafts = new Map();   // address → { text, files } of agents not shown
+     this.address = null;
+     // address → { agent, path } the chat showed last (set by the chat); send is bound to it.
+@@ -256,7 +330,7 @@
+       const d = (a && this.drafts.get(a)) || { text: "", files: [] };
+       this.drafts.delete(a);
+       this.setText(d.text); this.files = d.files; this.empty = !d.text.trim();
+-      this.address = a; this.note = null; this.statusAt = 0;
++      this.address = a; this.note = null; this.statusAt = 0; this.menuPath = null;
+     }
+     return a ? this : null;
+   }
+@@ -283,6 +357,7 @@
+   // The list to show now: { kind, query, items, pick, top, cmd } or null. `kind` "cmd": commands for "/<part>";
+   // "arg": the values of `cmd` for "/<cmd> <part>" (items are { name: value, description: label }).
+   slash() {
++    if (this.menuPath) return null;
+     const v = this.input.value();
+     return v === this.slashClosed ? null : this.slashFor(v);
+   }
+@@ -457,6 +532,113 @@
+     cx.notify();
+   }
+ 
++  toggleMenu(cx) {
++    if (this.menuPath) return this.closeMenu(cx);
++    this.menuPath = []; this.menuIndex = 0; this.menuTop = 0; this.menuWheelPx = 0;
++    this.input.focus();
++    cx.spawn((cx) => this.loadCommands(cx));
++    cx.notify();
++  }
++
++  closeMenu(cx) {
++    if (!this.menuPath) return false;
++    this.menuPath = null;
++    cx.notify();
++    return true;
++  }
++
++  menuEscape(cx) {
++    if (!this.menuPath) return false;
++    if (this.menuPath.length) this.menuBack(cx);
++    else this.closeMenu(cx);
++    return true;
++  }
++
++  menuGo(path, cx) {
++    this.menuPath = path; this.menuIndex = 0; this.menuTop = 0; this.menuWheelPx = 0;
++    cx.notify();
++  }
++
++  menuPick(entry, cx) {
++    if (entry.kind === "group") return this.menuGo([...this.menuPath, entry.key], cx);
++    this.menuPath = null;
++    this.prefill(`/${entry.cmd.name} `, cx);
++  }
++
++  menuBack(cx) {
++    if (!this.menuPath?.length) return;
++    this.menuGo(this.menuPath.slice(0, -1), cx);
++  }
++
++  menuEntriesNow() {
++    const loaded = this.cmds.get(this.address);
++    return loaded ? menuEntries(slashGroups(loaded.list), this.menuPath) : [];
++  }
++
++  menuKey(what, cx) {
++    if (!this.menuPath) return;
++    if (what === "close") return this.menuEscape(cx);
++    if (what === "back") return this.menuBack(cx);
++    const entries = this.menuEntriesNow();
++    if (!entries.length) return;
++    const index = Math.min(this.menuIndex, entries.length - 1);
++    if (what === "open") return this.menuPick(entries[index], cx);
++    if (what === "right") return entries[index].kind === "group" ? this.menuPick(entries[index], cx) : undefined;
++    if (what === "up") this.menuIndex = Math.max(0, index - 1);
++    else if (what === "down") this.menuIndex = Math.min(entries.length - 1, index + 1);
++    this.menuTop = windowTop(this.menuTop, this.menuIndex, entries.length);
++    cx.notify();
++  }
++
++  menuWheel(e, cx) {
++    const n = this.menuEntriesNow().length;
++    if (n <= SLASH_ROWS) return;
++    this.menuWheelPx -= Number(e?.delta?.y) || 0;
++    const rows = Math.trunc(this.menuWheelPx / ROW_PX);
++    if (!rows) return;
++    this.menuWheelPx -= rows * ROW_PX;
++    this.menuTop = Math.max(0, Math.min(n - SLASH_ROWS, this.menuTop + rows));
++    this.menuIndex = Math.max(this.menuTop, Math.min(this.menuTop + SLASH_ROWS - 1, this.menuIndex));
++    cx.notify();
++  }
++
++  menuView(t) {
++    const path = this.menuPath;
++    const loaded = this.cmds.get(this.address);
++    const entries = this.menuEntriesNow();
++    const index = Math.min(this.menuIndex, Math.max(0, entries.length - 1));
++    const top = windowTop(this.menuTop, index, entries.length);
++    const shown = entries.slice(top, top + SLASH_ROWS);
++    const row = (e, j) => h_flex().id(`menu-row-${top + j}`).w_full().h(ROW_PX).px(10).gap(10).items_center().rounded(8).flex_none()
++      .cursor_pointer().hover((st) => st.bg(t.hover))
++      .when(top + j === index, (el) => el.bg(t.hover))
++      .on_click((_e, cx) => this.menuPick(e, cx))
++      .when(e.kind === "group", (el) => el
++        .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(e.label))
++        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(e.count)))
++        .child(div().flex_none().text_size(13).text_color(t.muted).child("›")))
++      .when(e.kind === "cmd", (el) => el
++        .child(div().flex_none().text_size(13).font_semibold().text_color(t.foreground).child(`/${e.cmd.label}`))
++        .when(Boolean(e.cmd.hint), (el) => el.child(div().flex_none().text_size(12).text_color(t.dim).child(e.cmd.hint)))
++        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(e.cmd.description || ""))
++        .when(Boolean(e.cmd.screen), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child("needs a value"))));
++    const note = (text) => div().w_full().h(ROW_PX).px(10).flex().items_center().text_size(12).text_color(t.dim).child(text);
++    const more = entries.length > SLASH_ROWS
++      ? div().id("slash-menu-more").w_full().px(10).pt(2).text_size(11).text_color(t.dim)
++        .child(`${top + 1}–${top + shown.length} of ${entries.length}`)
++      : null;
++    return v_flex().id("slash-menu").w_full().max_w(800).p(4).gap(0).rounded(12).bg(t.raised)
++      .border(1).border_color(t.border).shadow_sm().on_scroll_wheel((e, cx) => this.menuWheel(e, cx))
++      .when(path.length > 0, (el) => el.child(h_flex().id("slash-menu-back").w_full().h(ROW_PX).px(10).gap(8).items_center().rounded(8)
++        .cursor_pointer().hover((st) => st.bg(t.hover)).on_click((_e, cx) => this.menuBack(cx))
++        .child(div().text_size(13).text_color(t.muted).child("‹"))
++        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(menuTitle(path)))))
++      .when(!loaded, (el) => el.child(note("Loading commands…")))
++      .when(Boolean(loaded) && !entries.length, (el) => el.child(note("No commands for this agent.")))
++      .children(shown.map(row))
++      .when(Boolean(more), (el) => el.child(more));
++  }
++
+   tagClick(x, cx) {
+     if (x.kind === "model") return this.prefill("/model ", cx);
+     if (x.kind === "context") return this.prefill("/compact ", cx);
+@@ -509,9 +691,11 @@
+         .on_click((_e, cx) => { this.files = this.files.filter((f) => f !== p); cx.notify(); }).child("×"));
+     return v_flex().id("composer").w_full().px(16).pb(14).pt(6).gap(6).items_center()
+       .key_context(PASTE_CONTEXT)
++      .on_key_down((e, cx) => { if ((e?.key === "escape" || e?.key === "backspace") && this.menuEscape(cx)) cx.stop_propagation?.(); })
+       .on_action(PASTE_ACTION, (_e, cx) => { const text = cx.read_from_clipboard?.(); cx.spawn((cx) => this.paste(cx, text)); })
+       .when(Boolean(activity), (el) => el.child(this.activityRow(activity, t)))
+       .when(setting("status_row") !== "hide", (el) => el.child(h_flex().id("tags").w_full().max_w(800).gap(5).items_center().overflow_x_scroll().children(tags.map(tag))))
++      .when(Boolean(this.menuPath), (el) => el.child(this.menuView(t)))
+       .when(Boolean(s), (el) => el.child(v_flex().id("slash").w_full().max_w(800).p(4).gap(0).rounded(12).bg(t.raised)
+         .border(1).border_color(t.border).shadow_sm().on_scroll_wheel((e, cx) => this.slashWheel(e, cx))
+         .children(shown.map(row)).when(Boolean(more), (l) => l.child(more))))
+@@ -519,6 +703,13 @@
+         .when(this.files.length > 0, (el) => el.child(h_flex().gap(6).flex_wrap().children(this.files.map(fileChip))))
+         .child(div().id("slash-keys").w_full()
+           .when(Boolean(s), (el) => el.key_context(SLASH_CONTEXT))
++          .when(Boolean(this.menuPath), (el) => el.key_context(MENU_CONTEXT))
++          .on_action(MENU.up, (_e, cx) => this.menuKey("up", cx))
++          .on_action(MENU.down, (_e, cx) => this.menuKey("down", cx))
++          .on_action(MENU.open, (_e, cx) => this.menuKey("open", cx))
++          .on_action(MENU.right, (_e, cx) => this.menuKey("right", cx))
++          .on_action(MENU.back, (_e, cx) => this.menuKey("back", cx))
++          .on_action(MENU.close, (_e, cx) => this.menuKey("close", cx))
+           .on_action(SLASH.up, (_e, cx) => this.slashKey("up", cx))
+           .on_action(SLASH.down, (_e, cx) => this.slashKey("down", cx))
+           .on_action(SLASH.complete, (_e, cx) => this.slashKey("complete", cx))
+@@ -528,6 +719,12 @@
+           .when(canPick(), (el) => el.child(div().id("attach").size(28).flex_none().flex().items_center().justify_center().rounded(14).text_color(t.muted)
+             .hover((s) => s.bg(t.hover).text_color(t.foreground))
+             .on_click((_e, cx) => cx.spawn((cx) => this.pick(cx))).child(svg(icon("plus")).size(15))))
++          .child(div().id("slash-menu-toggle").h(28).px(12).flex_none().flex().items_center().justify_center().rounded(14)
++            .text_size(12).font_semibold().border(1)
++            .bg(this.menuPath ? t.accent : t.chrome).border_color(this.menuPath ? t.accent : t.border)
++            .text_color(this.menuPath ? t.background : t.foreground)
++            .hover((s) => s.bg(t.accent).border_color(t.accent).text_color(t.background))
++            .on_click((_e, cx) => this.toggleMenu(cx)).child("Comandos"))
+           .child(div().flex_1())
+           .when(Boolean(branch), (el) => el.child(h_flex().gap(4).items_center().text_size(12).text_color(t.muted)
+             .child(svg(icon("branch")).size(12)).child(div().max_w(200).truncate().child(branch.text))))

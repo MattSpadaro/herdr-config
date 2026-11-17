@@ -1,0 +1,21 @@
+{
+  "name": "agent-columns",
+  "description": "Agent Columns: agents as cards in status columns over a live terminal workspace. Only its mods are installed; the base layout chowdr-herdr-ctrl composes them.",
+  "repo": "https://github.com/elied-dev/herdr-agent-columns",
+  "ref": "main",
+  "commit": "376da6301221bef23dc88027140005e62c2919bb",
+  "license": "Apache-2.0",
+  "order": 30,
+  "vendor": [
+    "LICENSE",
+    "README.md",
+    "RECIPE.md",
+    "layouts",
+    "mods"
+  ],
+  "install": {
+    "mods/agent-columns": "mods/agent-columns",
+    "mods/agent-columns-chrome": "mods/agent-columns-chrome",
+    "mods/agent-columns-spaces": "mods/agent-columns-spaces"
+  }
+}

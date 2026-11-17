@@ -1,0 +1,41 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/composer.js b/herdr-app/mods/flockbook/composer.js
+--- a/herdr-app/mods/flockbook/composer.js
++++ b/herdr-app/mods/flockbook/composer.js
+@@ -10,6 +10,7 @@
+ 
+ export const STATUS_MS = 5000;
+ export const SENT_WAIT_MS = 15000;
++export const BLOCKED_NOTE = "Responda apenas pelo card de pergunta.";
+ const MODE_MS = 2000;
+ export const MODES = [
+   { key: "default", label: "Default" },
+@@ -507,6 +508,11 @@
+   async submit(cx) {
+     const a = this.address, b = this;
+     if (this.sending || !a) return;
++    if (this.embed && this.agent?.status === "blocked") {
++      this.blockedTried = true;
++      cx.notify();
++      return;
++    }
+     const now = b.input.value();
+     const text = withoutEnter(now, now === this.typed[1] ? this.typed[0] : this.typed[1]).replace(/\s+$/, "");
+     if (!text.trim() && !b.files.length) { b.setText(""); return; }
+@@ -844,6 +850,8 @@
+     const working = this.embed && agent?.status === "working";
+     const modeKey = agent ? this.modes.get(agent.address) : null;
+     const boxColor = !this.embed ? null : working ? t.working : modeColor(modeKey, t);
++    const blocked = this.embed && agent?.status === "blocked";
++    if (!blocked) this.blockedTried = false;
+     const modeLabel = this.switching ? "Switching…" : working ? "Working" : MODES.find((m) => m.key === modeKey)?.label ?? "Mode";
+     const tag = (x) => h_flex().id(`tag-${x.kind}`).h(22).px(8).gap(4).items_center().rounded(11).flex_none().text_size(11.5)
+       .bg(x.warn ? t.blocked : t.chrome).text_color(x.warn ? t.background : t.muted).border(1).border_color(x.warn ? t.blocked : t.border)
+@@ -908,6 +916,8 @@
+             .bg(empty || this.sending ? t.chrome : t.accent).text_color(empty || this.sending ? t.dim : t.background)
+             .on_click((_e, cx) => cx.spawn((cx) => this.submit(cx)))
+             .child(this.sending ? svg(icon("spinner")).size(13).spin(SPIN_MS) : svg(icon("send")).size(14)))))
++      .when(blocked && !this.note, (el) => el.child(div().id("blocked-note").w_full().max_w(800)
++        .text_size(12).text_color(this.blockedTried ? t.blocked : t.muted).child(BLOCKED_NOTE)))
+       .when(Boolean(this.note), (el) => el.child(div().id("send-note").w_full().max_w(800).text_size(12)
+         .text_color(this.note.bad ? t.blocked : t.muted).child(this.note.text)));
+   }

@@ -1,0 +1,8 @@
+{
+  "label": "Asks",
+  "log": "~/.config/herdr-app/decisions.md",
+  "classify": "off",
+  "trailing_questions": false,
+  "toast": false,
+  "debug": false
+}

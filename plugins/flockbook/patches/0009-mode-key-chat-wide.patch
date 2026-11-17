@@ -1,0 +1,47 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/chat.js b/herdr-app/mods/flockbook/chat.js
+--- a/herdr-app/mods/flockbook/chat.js
++++ b/herdr-app/mods/flockbook/chat.js
+@@ -12,7 +12,7 @@
+ import { GUTTER, columnWidth, rowHeight } from "./estimate.js";
+ import { ROW_PAD_Y, BUBBLE_PAD_X, BUBBLE_PAD_Y, BUBBLE_GAP, IMAGES_FS, bubbleWidth, bubbleTextWidth, CHIP_H, CHIP_PAD_Y, CHIP_GAP, OPEN_INDENT,
+   CALL_H, SEP_H, FOOTER_H, STATUS_H, CARD_ROW_H, OTHER_H } from "./metrics.js";
+-import { Composer } from "./composer.js";
++import { Composer, MODE_ACTION, MODE_CONTEXT } from "./composer.js";
+ import { markdownView, codeBlockAt } from "./mdblocks.js";
+ import { textScale } from "./config.js";
+ 
+@@ -371,7 +371,8 @@
+     else if (!f.rows.length) main = this.center(t, f.path ? "No messages yet." : "No conversation yet. Send the first message.");
+     else main = this.list(t, f);
+     const stop = (_e, cx) => cx.stop_propagation();
+-    const root = v_flex().id("root").relative().size_full().min_w(0).bg(t.background);
++    let root = v_flex().id("root").relative().size_full().min_w(0).bg(t.background);
++    if (this.embed) root = root.key_context(MODE_CONTEXT).on_action(MODE_ACTION, (_e, cx) => cx.spawn((cx) => this.composer.nextMode(cx)));
+     return (this.embed ? root : watchEdge(root))
+       .on_size_change((size, cx) => { noteWindowHeight(size); if (Math.abs(size.width - this.width) >= 1) { this.width = size.width; cx.notify(); } })
+       .on_drop((e, cx) => this.composer.addFiles(e?.paths, cx))
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/composer.js b/herdr-app/mods/flockbook/composer.js
+--- a/herdr-app/mods/flockbook/composer.js
++++ b/herdr-app/mods/flockbook/composer.js
+@@ -35,11 +35,12 @@
+ }
+ 
+ export const MODE_ACTION = "flockbook_mode_next";
++export const MODE_CONTEXT = "FlockbookChat";
+ let modeBound = false;
+ function bindMode(cx) {
+   if (modeBound || typeof cx?.bind_keys !== "function") return;
+   try {
+-    cx.bind_keys([{ keystroke: "shift-tab", action: MODE_ACTION, context: `${PASTE_CONTEXT} > Input` }]);
++    cx.bind_keys([{ keystroke: "shift-tab", action: MODE_ACTION, context: MODE_CONTEXT }]);
+     modeBound = true;
+   } catch { }
+ }
+@@ -865,7 +866,6 @@
+         .on_click((_e, cx) => { this.files = this.files.filter((f) => f !== p); cx.notify(); }).child("×"));
+     return v_flex().id("composer").w_full().px(16).pb(14).pt(6).gap(6).items_center()
+       .key_context(PASTE_CONTEXT)
+-      .on_action(MODE_ACTION, (_e, cx) => cx.spawn((cx) => this.nextMode(cx)))
+       .on_key_down((e, cx) => { if ((e?.key === "escape" || e?.key === "backspace") && this.menuEscape(cx)) cx.stop_propagation?.(); })
+       .on_action(PASTE_ACTION, (_e, cx) => { const text = cx.read_from_clipboard?.(); cx.spawn((cx) => this.paste(cx, text)); })
+       .when(Boolean(activity), (el) => el.child(this.activityRow(activity, t)))

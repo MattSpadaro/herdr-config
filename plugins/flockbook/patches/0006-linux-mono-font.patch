@@ -1,0 +1,103 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/cards.js b/herdr-app/mods/flockbook/cards.js
+--- a/herdr-app/mods/flockbook/cards.js
++++ b/herdr-app/mods/flockbook/cards.js
+@@ -5,7 +5,7 @@
+ import { div, svg } from "gpui-kit";
+ import { v_flex, h_flex, Textarea, TextareaState } from "gpui-base";
+ import { shared, setShared } from "herdr";
+-import { icon } from "./state.js";
++import { icon, monoFont } from "./state.js";
+ import * as sidecar from "./sidecar.js";
+ import { withoutEnter } from "./composer.js";
+ 
+@@ -238,7 +238,7 @@
+     if (c.kind === "approval") {
+       box.child(head(c.title || (c.tool ? `${c.tool} wants to run` : "Approval needed")));
+       if (c.command) box.child(div().id(`${id}-command`).max_h(140).overflow_y_scrollbar().px(10).py(8).rounded(8).bg(t.background)
+-        .text_size(12.5).font_family("Menlo").text_color(t.foreground).child(c.command));
++        .text_size(12.5).font_family(monoFont()).text_color(t.foreground).child(c.command));
+       // Answered and still drawn (the agent has not moved on, or hc still holds the key): no second answer.
+       const off = e.sending || c.answered === true;
+       box.child(h_flex().gap(8).items_center()
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/mdblocks.js b/herdr-app/mods/flockbook/mdblocks.js
+--- a/herdr-app/mods/flockbook/mdblocks.js
++++ b/herdr-app/mods/flockbook/mdblocks.js
+@@ -1,6 +1,7 @@
+ // Markdown with our own code boxes and tables: herdr's TextView draws them square and takes no CSS,
+ // so the text is split into blocks (blocks.js, the same split estimate.js counts); code fences and tables
+ // are drawn here (rounded), the rest stays TextView markdown.
++import { monoFont } from "./state.js";
+ import { div } from "gpui-kit";
+ import { v_flex, h_flex, TextView } from "gpui-base";
+ import { colWidths, markdownHeight } from "./estimate.js";
+@@ -35,7 +36,7 @@
+ 
+ function codeBox(key, b, t, k) {
+   return v_flex().w_full().my(6).px(14).py(10).rounded(12).bg(t.raised).border(1).border_color(t.border)
+-    .font_family("Menlo").text_size(13 * k).text_color(t.foreground)
++    .font_family(monoFont()).text_size(13 * k).text_color(t.foreground)
+     .child(TextView.markdown(key, codeMarkdown(b.text)).selectable(true));
+ }
+ 
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/phone.js b/herdr-app/mods/flockbook/phone.js
+--- a/herdr-app/mods/flockbook/phone.js
++++ b/herdr-app/mods/flockbook/phone.js
+@@ -6,7 +6,7 @@
+ import { v_flex, h_flex } from "gpui-base";
+ import { shared, setShared, appHome } from "herdr";
+ import { setSetting, configBad, KEY_CONFIG } from "./config.js";
+-import { icon } from "./state.js";
++import { icon, monoFont } from "./state.js";
+ import * as sidecar from "./sidecar.js";
+ 
+ export const KEY_PHONE = "flockbook.phone";   // { line, error, at }: the helper's last phone line, and an error
+@@ -96,7 +96,7 @@
+   const running = l?.service?.state === "running";
+   const user = l?.user ?? ts?.login ?? "";
+   const [said, bad] = stateText(p);
+-  const mono = (id, text) => div().id(id).text_size(11.5).font_family("Menlo").text_color(t.foreground).child(text);
++  const mono = (id, text) => div().id(id).text_size(11.5).font_family(monoFont()).text_color(t.foreground).child(text);
+   const copy = (id, text, label = "Copy") => small(id, owner.copied === text ? "Copied" : label, (cx) => {
+     cx.write_to_clipboard?.(text); owner.copied = text; cx.notify?.();
+   });
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/settings.js b/herdr-app/mods/flockbook/settings.js
+--- a/herdr-app/mods/flockbook/settings.js
++++ b/herdr-app/mods/flockbook/settings.js
+@@ -8,7 +8,7 @@
+ import { v_flex, h_flex, Input, InputState } from "gpui-base";
+ import { theme, props, closeOverlay } from "herdr";
+ import { setting, setSetting, loadConfig, configBad, configPath, updateShown, dismissUpdate } from "./config.js";
+-import { icon, settingsClosed } from "./state.js";
++import { icon, settingsClosed, monoFont } from "./state.js";
+ import { pollPhone, phoneTick, PHONE_TICK_MS, phoneOn, phoneBlocked, phoneChoose, phoneUser, phoneBody, setPhoneOption } from "./phone.js";
+ 
+ const PHONE = { title: "Phone page", about: "Read your agents on your phone, through Tailscale." };
+@@ -46,7 +46,7 @@
+   const copy = (cx) => { cx.write_to_clipboard?.(u.command); owner.copied = u.latest; cx.notify?.(); };
+   return v_flex().id("update-line").w_full().px(10).py(8).gap(6).rounded(8).bg(t.raised).border(1).border_color(t.border)
+     .child(div().text_size(12.5).text_color(t.foreground).child(`Flockbook ${u.latest} is out`))
+-    .when(full, (el) => el.child(div().id("update-command").text_size(11.5).font_family("Menlo").text_color(t.muted).child(u.command)))
++    .when(full, (el) => el.child(div().id("update-command").text_size(11.5).font_family(monoFont()).text_color(t.muted).child(u.command)))
+     .child(h_flex().gap(6).items_center()
+       .child(small("update-copy", owner.copied === u.latest ? "Copied" : "Copy install command", copy))
+       .child(small("update-dismiss", "Not now", (cx) => cx.spawn(async (cx) => { await dismissUpdate(); cx.notify(); }))));
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/state.js b/herdr-app/mods/flockbook/state.js
+--- a/herdr-app/mods/flockbook/state.js
++++ b/herdr-app/mods/flockbook/state.js
+@@ -1,6 +1,6 @@
+ // What every view agrees on: the agent shown in the chat, and the screen in the stack.
+ // Kept in shared() so the copies of this mod (one per layout block) see the same value.
+-import { agents, focused, shared, setShared, run, spaces, openOverlay, closeOverlay, appHome, readTextFile } from "herdr";
++import { agents, focused, shared, setShared, run, spaces, openOverlay, closeOverlay, appHome, readTextFile, window } from "herdr";
+ import { loadConfig, updateSeen } from "./config.js";
+ 
+ export const KEY_AGENT = "flockbook.agent";
+@@ -26,6 +26,8 @@
+ // the arc moves 13 degrees a frame (at 600 ms it was 20, and looked jerky). Herdr's own spinner turns at 900.
+ export const SPIN_MS = 900;
+ 
++export const monoFont = () => (window()?.platform === "macos" ? "Menlo" : "JetBrains Mono");
++
+ // Motion: a quick ease-out for fades and a soft spring for moves, as in the web app.
+ export const FADE = { duration: 180, easing: "ease-out" };
+ export const SPRING = { response: 320, damping: 0.82 };

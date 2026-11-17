@@ -1,0 +1,75 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/composer.js b/herdr-app/mods/flockbook/composer.js
+--- a/herdr-app/mods/flockbook/composer.js
++++ b/herdr-app/mods/flockbook/composer.js
+@@ -290,6 +290,7 @@
+       const v = this.input.value();
+       if (v !== this.typed[1]) this.typed = [this.typed[1], v];
+       const e = !v.trim(); if (e !== this.empty) { this.empty = e; cx.notify(); }
++      if (!v && this.draftStash && !this.sending) { this.restoreDraft(cx); return; }
+       if (this.slashClosed !== null && v !== this.slashClosed) this.slashClosed = null;
+       this.pick = 0; this.top = 0; this.wheel = 0;
+       if (slashQuery(v) !== null || argQuery(v) !== null) cx.spawn((cx) => this.loadCommands(cx));
+@@ -303,6 +304,7 @@
+     this.wheel = 0;             // wheel pixels not yet a whole row
+     this.slashClosed = null;    // the text Esc closed the list at
+     this.menuPath = null;
++    this.draftStash = null;
+     this.menuIndex = 0;
+     this.menuTop = 0;
+     this.menuWheelPx = 0;
+@@ -326,7 +328,8 @@
+     this.agent = agent ?? null;
+     const a = agent?.address ?? null;
+     if (a !== this.address) {
+-      if (this.address) this.drafts.set(this.address, { text: this.input.value(), files: this.files });
++      if (this.address) this.drafts.set(this.address, this.draftStash ?? { text: this.input.value(), files: this.files });
++      this.draftStash = null;
+       const d = (a && this.drafts.get(a)) || { text: "", files: [] };
+       this.drafts.delete(a);
+       this.setText(d.text); this.files = d.files; this.empty = !d.text.trim();
+@@ -392,7 +395,7 @@
+     if (what === "up") this.pick = Math.max(0, s.pick - 1);
+     else if (what === "down") this.pick = Math.min(s.items.length - 1, s.pick + 1);
+     else if (what === "complete") return this.complete(s, s.items[s.pick], cx);
+-    else if (what === "close") this.slashClosed = this.input.value();
++    else if (what === "close") { if (this.restoreDraft(cx)) return; this.slashClosed = this.input.value(); }
+     this.top = windowTop(s.top, this.pick, s.items.length);
+     cx.notify();
+   }
+@@ -481,6 +484,7 @@
+         this.note = { text: moved ? sidecar.AGENT_CHANGED : (r.error?.message ?? done?.message) || "The message was not sent.", bad: true };
+       } else {
+         if (this.embed) this.sentAt.set(a, Date.now());
++        if (this.address === a && !b.input.value() && this.draftStash) { this.restoreDraft(cx); return; }
+         if (done.result === "unconfirmed") this.note = { text: "Sent. The agent did not confirm it yet.", bad: false };
+       }
+     } finally { this.sending = false; cx.notify(); }
+@@ -524,7 +528,28 @@
+       .child(div().truncate().child(x.text));
+   }
+ 
++  stashDraft() {
++    const text = this.input.value();
++    if (this.draftStash || (!text.trim() && !this.files.length) || text.trimStart().startsWith("/")) return false;
++    this.draftStash = { text, files: this.files };
++    this.files = [];
++    return true;
++  }
++
++  restoreDraft(cx) {
++    const d = this.draftStash;
++    if (!d) return false;
++    this.draftStash = null;
++    this.setText(d.text); this.files = d.files; this.empty = !d.text.trim() && !d.files.length;
++    this.slashClosed = null; this.pick = 0; this.top = 0; this.wheel = 0;
++    this.note = null;
++    this.input.focus();
++    cx?.notify?.();
++    return true;
++  }
++
+   prefill(text, cx) {
++    if (this.stashDraft()) this.note = { text: "Draft kept. It comes back after the command is sent, with Esc, or when the box is emptied.", bad: false };
+     this.setText(text);
+     this.empty = false; this.slashClosed = null; this.pick = 0; this.top = 0; this.wheel = 0;
+     this.input.focus();

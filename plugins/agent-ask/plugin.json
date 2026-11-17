@@ -1,0 +1,23 @@
+{
+  "name": "agent-ask",
+  "description": "Asks: a side panel collecting every question agents ask, with answers sent back through hc. Provides the tabs-asks bar (detection engine) and the asks panel.",
+  "repo": "https://github.com/sachin-philip/herdr-agent-ask",
+  "ref": "main",
+  "commit": "fa9b4f569e0b61ad72b7d6f84743dab28494300d",
+  "license": "MIT",
+  "order": 20,
+  "vendor": [
+    "LICENSE",
+    "README.md",
+    "RECIPE.md",
+    "CHANGELOG.md",
+    "keys.json",
+    "layouts",
+    "mods"
+  ],
+  "install": {
+    "mods/asks": "mods/asks",
+    "mods/tabs-asks": "mods/tabs-asks"
+  },
+  "keys": "keys.json"
+}

@@ -1,0 +1,40 @@
+{
+  "name": "flockbook",
+  "description": "Flockbook: an agent's conversation as a chat. Only its mod is installed, patched with an embedded chat mode that the base layout hosts beside the terminals; helper built from source.",
+  "repo": "https://github.com/minchenlee/flockbook",
+  "ref": "v0.13.0",
+  "commit": "a8fa3db80460cd9ee0ad1ec9f3dd229921043b36",
+  "license": "MIT",
+  "order": 40,
+  "vendor": [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "herdr-app/README.md",
+    "herdr-app/RECIPE.md",
+    "herdr-app/keys.json",
+    "herdr-app/docs/protocol.md",
+    "herdr-app/layouts",
+    "herdr-app/mods"
+  ],
+  "install": {
+    "herdr-app/mods/flockbook": "mods/flockbook"
+  },
+  "helpers": [
+    {
+      "workdir": "xplat",
+      "command": [
+        "cargo",
+        "+1.90.0",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "flockbook-modfeed"
+      ],
+      "artifact": "xplat/target/release/flockbook-modfeed",
+      "dest": "flockbook/bin/flockbook-modfeed",
+      "rustup_toolchain": "1.90.0",
+      "patches": "helper-patches"
+    }
+  ]
+}

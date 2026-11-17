@@ -1,0 +1,44 @@
+---
+type: Herdr Plugin
+title: Agent Columns
+description: Board of agents as cards in status columns over the live terminal workspace; its mods are hosted by the base layout.
+tags: [agents, board]
+status: stable
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T16:00:00-03:00 }
+resource: https://github.com/elied-dev/herdr-agent-columns
+sources:
+  - id: columns-recipe
+    resource: plugins/agent-columns/upstream/RECIPE.md
+    title: herdr-agent-columns RECIPE.md
+---
+
+# Agent Columns
+
+Pinned at `376da6301221bef23dc88027140005e62c2919bb` (branch `main`), Apache-2.0.
+
+## What it installs
+
+Only the mods `agent-columns` (board, header and pane header by `props.role`), `agent-columns-chrome` (a `workspace-chrome` 0.1.11 clone without the fold button), and `agent-columns-spaces` (spaces with nested tabs). `agent-columns-usage` (Usage dialog) is vendored but not installed: it reads agent credentials and calls undocumented usage endpoints, which [ADR 0007](/decisions/0007-usage-from-statusline-tap.md) rejected; the repository's [agent-usage](/architecture/agent-usage.md) panel replaces it.[^columns-recipe] Its `layouts/agent-columns.json` is vendored for reference but not installed; the [base layout](/layouts/chowdr-herdr-ctrl.md) started from it.
+
+## Patches
+
+1. `0001-spaces-asks-count.patch`: `agent-columns-spaces` shows a pill with the count of pending asks per space, read from `shared("asks.state")` under the [asks.state contract](/architecture/asks-state-contract.md): every `pending` ask counts, `UNCLEAR` included, the same as the tab bar badge.
+2. `0002-new-space-overlay.patch`: with `props.newSpace = {mod, width?, height?, props?}`, the `+` beside "Spaces" opens that mod as a popup instead of running `space.new`. The base layout points it at the [folder picker](/architecture/folder-picker.md).
+3. `0003-usage-button-prop.patch`: the sidebar footer's Usage button comes from `props.usage = {icon, label?, run: [{name, args?}]}` and runs those commands in order; without the prop there is no button. Upstream opened `agent-columns-usage`. The base layout points it at the `agent-usage` panel.
+
+The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
+
+## Contract with the mod
+
+The `agent-columns` mod hides, shows and resizes the ids `cols-cards`, `workspace` and `sidebar`. Keep those ids when editing the base layout. Board view resizes `cols-cards` to weight 1; Split restores 355 px.
+
+## Runtime surface
+
+No installed mod runs programs. The Usage dialog (`agent-columns-usage`), which ran `usage.py`, read `~/.claude/.credentials.json` (Linux) or the macOS keychain and `~/.codex/auth.json`, and called the Claude, Codex and Copilot usage endpoints with `curl`, is no longer installed.
+
+## Watch out
+
+- The Failed column uses a fixed `#ef4444`. It was left unpatched because Monokai's red is the same as `blocked`.
+- Space avatar colors are the fixed palette shared with Herdr's shipped mods, not Monokai's, so they stay consistent with the `agents` list.
+
+[^columns-recipe]: herdr-agent-columns RECIPE.md

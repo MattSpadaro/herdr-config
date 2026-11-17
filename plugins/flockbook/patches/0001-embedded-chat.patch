@@ -1,0 +1,129 @@
+diff -ruN a/herdr-app/mods/flockbook/chat.js b/herdr-app/mods/flockbook/chat.js
+--- a/herdr-app/mods/flockbook/chat.js
++++ b/herdr-app/mods/flockbook/chat.js
+@@ -3,7 +3,7 @@
+ // cannot be scrolled from code, and the chat must open at the newest message. Every row shows in full.
+ import { div, svg } from "gpui-kit";
+ import { v_flex, h_flex, TextView, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
+-import { theme, run, shared, settings } from "herdr";
++import { theme, run, shared, settings, props } from "herdr";
+ import { currentAgent, machineOf, icon, SPIN_MS, FADE, shownScreen, watchEdge, noteWindowHeight, KEY_WIN_H } from "./state.js";
+ import { Appear } from "./motion.js";
+ import { now, record, flush, loadTiming } from "./timing.js";
+@@ -77,9 +77,11 @@
+     this.heights = new WeakMap(); // row → { w, open, k, zoom, h }
+     this.busy = false;
+     this.lastPoll = 0;
++    this.embed = props()?.embed === true;
++    this.barH = this.embed ? 0 : BAR_H;
+     this.composer = new Composer(cx);
+     this.composer.seen = (address) => { const f = this.feeds.get(address); return f ? { agent: f.agent ?? null, path: f.path ?? null } : null; };
+-    this.top = {}; startTop(cx, this.top);
++    this.top = {}; startTop(cx, this.top, { embed: this.embed });
+     this.appear = new Appear();
+     this.cards = new Cards(cx);
+     this.helper = new HelperUI();
+@@ -108,6 +110,7 @@
+     const screen = shownScreen();
+     if (screen === "chat" && this.screen !== "chat") { this.follow = true; this.toNewest(); cx.notify(); }
+     this.screen = screen;
++    if (this.embed && screen !== "chat") return;
+     if (this.helper.changed()) cx.notify();
+     cx.spawn((cx) => this.composer.pollStatus(cx));
+     const agent = currentAgent();
+@@ -263,7 +266,7 @@
+     const w = this.colWidth();
+     const at = typeof y0 !== "number" ? null : row.k === "assistant" ? { y: y0 - ROW_PAD_Y, w }
+       : row.from == null ? { y: y0 - ROW_PAD_Y - BUBBLE_PAD_Y, w: bubbleTextWidth(w) } : null;
+-    const code = at ? codeBlockAt(row.text || "", at.w, at.y - (i === 0 ? BAR_H : 0), textScale(), appZoom()) : null;
++    const code = at ? codeBlockAt(row.text || "", at.w, at.y - (i === 0 ? this.barH : 0), textScale(), appZoom()) : null;
+     if (code !== null) items.push({ label: "Copy code", act: "copy", args: { text: code } });
+     items.push({ label: "Copy message", act: "copy", args: { text: row.text || "" } });
+     return openMenu(items);
+@@ -305,7 +308,7 @@
+   list(t, f) {
+     const rows = f.rows, n = rows.length;
+     // The first row starts below the bar; the rest scroll up under it.
+-    const sizes = rows.map((r, i) => this.height(r) + (i === 0 ? BAR_H : 0));
++    const sizes = rows.map((r, i) => this.height(r) + (i === 0 ? this.barH : 0));
+     const box = v_flex().relative().flex_1().min_h(0)
+       .on_scroll_wheel((e, cx) => {
+         const up = e?.delta?.y > 0;
+@@ -323,7 +326,7 @@
+           this.autoOlder++; this.wantOlder = true;
+         }
+         const out = [];
+-        for (let i = range.start; i < range.end; i++) out.push(i === 0 ? div().w_full().pt(BAR_H).child(this.item(rows[i], t)) : this.item(rows[i], t));
++        for (let i = range.start; i < range.end; i++) out.push(i === 0 ? div().w_full().pt(this.barH).child(this.item(rows[i], t)) : this.item(rows[i], t));
+         record("chat.rows", now() - t0, range.end - range.start);
+         return out;
+       }).track_scroll(this.scroll).on_item_click((key, cx) => this.click(key, cx))
+@@ -340,7 +343,7 @@
+           .child(svg(icon("arrow-down")).size(15))));
+     }
+     // While older rows load: a small note under the bar's tabs. Drawn only then: a hidden spinner still costs frames.
+-    if (this.olderBusy) box.child(h_flex().absolute().top(BAR_H + 6).left(0).right(0).justify_center()
++    if (this.olderBusy) box.child(h_flex().absolute().top(this.barH + 6).left(0).right(0).justify_center()
+       .child(h_flex().id("older").h(26).px(12).gap(6).items_center().rounded(13).bg(t.raised).border(1).border_color(t.border)
+         .text_size(12).text_color(t.muted)
+         .child(svg(icon("spinner")).size(11).spin(SPIN_MS)).child("Loading earlier messages")));
+@@ -356,13 +359,14 @@
+     const t = theme();
+     const f = this.feed();
+     let main;
+-    if (!f) main = this.center(t, "No agent to show. Start one with +.");
++    if (!f) main = this.center(t, this.embed ? "No agent in this tab." : "No agent to show. Start one with +.");
+     else if (f.error && !f.rows.length) main = this.problem(t, f.error);
+     else if (!f.loaded) main = this.center(t, "Loading…");
+     else if (!f.rows.length) main = this.center(t, f.path ? "No messages yet." : "No conversation yet. Send the first message.");
+     else main = this.list(t, f);
+     const stop = (_e, cx) => cx.stop_propagation();
+-    return watchEdge(v_flex().id("root").relative().size_full().min_w(0).bg(t.background))
++    const root = v_flex().id("root").relative().size_full().min_w(0).bg(t.background);
++    return (this.embed ? root : watchEdge(root))
+       .on_size_change((size, cx) => { noteWindowHeight(size); if (Math.abs(size.width - this.width) >= 1) { this.width = size.width; cx.notify(); } })
+       .on_drop((e, cx) => this.composer.addFiles(e?.paths, cx))
+       // The chat input keeps ⌘⌥↑/↓ from the app's keys, so the chat switches spaces itself.
+@@ -380,6 +384,6 @@
+         if (card) el.child(this.appear.wrap(h_flex().w_full().px(16).pt(8).justify_center().on_mouse_down("left", stop).child(card), "chat-card-in", `${this.address}:${this.cards.key?.(this.address) ?? ""}`, cx, 10));
+         return el.child(div().w_full().on_mouse_down("left", stop).child(this.composer.render(currentAgent(), t)));
+       })
+-      .child(overBar(t));
++      .when(!this.embed, (el) => el.child(overBar(t)));
+   }
+ }
+diff -ruN a/herdr-app/mods/flockbook/top.js b/herdr-app/mods/flockbook/top.js
+--- a/herdr-app/mods/flockbook/top.js
++++ b/herdr-app/mods/flockbook/top.js
+@@ -40,6 +40,7 @@
+ export { dropPlace };
+ 
+ const KEY_CMD = "flockbook.command";   // the last key command and when, so two copies don't both act
++const EMBED_COMMANDS = new Set(["settings", "text-smaller", "text-larger", "text-default"]);
+ 
+ // Keys bound to "flockbook.<command>" in keys.json.
+ export function command(c) {
+@@ -59,19 +60,20 @@
+ // Each screen (chat, Needs you, Overview, the tab's terminals) draws the bar, so each runs its
+ // work: the key commands, the screen sync, the saved sidebar state. Should the app hand one key
+ // to every copy, the first acts and the others see it in KEY_CMD and skip it.
+-export function startTop(cx, owner) {
++export function startTop(cx, owner, { embed = false } = {}) {
+   owner.seen = undefined;
+-  cx?.timer?.every(SYNC_MS, () => syncScreen(owner));
++  if (!embed) cx?.timer?.every(SYNC_MS, () => syncScreen(owner));
+   cx?.spawn?.(async (cx) => {
+     for (;;) {
+       const c = await nextCommand();
++      if (embed && !EMBED_COMMANDS.has(c)) continue;
+       const last = shared(KEY_CMD), at = Date.now();
+       if (last && last.c === c && at - last.at < 150) continue;
+       setShared(KEY_CMD, { c, at });
+       command(c); cx.notify();
+     }
+   });
+-  cx?.spawn?.(async (cx) => { await loadSidebar(); cx.notify(); });
++  if (!embed) cx?.spawn?.(async (cx) => { await loadSidebar(); cx.notify(); });
+   // The settings file, read again each minute (someone may edit it), and the update check (pollUpdate
+   // asks the helper at most once an hour).
+   const settings = async (cx) => { await loadConfig(); await pollUpdate(); cx.notify(); };

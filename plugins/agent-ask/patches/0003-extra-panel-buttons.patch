@@ -1,0 +1,30 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/tabs-asks/main.js b/mods/tabs-asks/main.js
+--- a/mods/tabs-asks/main.js
++++ b/mods/tabs-asks/main.js
+@@ -3,7 +3,7 @@
+ // always on screen, so asks are found, understood and toasted before the panel is opened.
+ import { View, div, svg, image } from "gpui-kit";
+ import { h_flex } from "gpui-base";
+-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, nextCommand, focused } from "herdr";
++import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, nextCommand, focused, props } from "herdr";
+ import { Engine } from "./engine.js";
+ import { readState, loadConfig } from "./state.js";
+ 
+@@ -102,7 +102,8 @@
+       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
+       : 10;
+     const panel = find(root, "panel"), body = find(root, "panel-body");
+-    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "asks"];
++    const extra = (Array.isArray(props()?.panels) ? props().panels : []).filter(p => typeof p?.id === "string" && typeof p?.icon === "string");
++    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "asks", ...extra.map(p => p.id)];
+     this.syncPanel(space, panel, body, enabled);
+     const panelButton = (id, label, icon, badge) => {
+       const on = panel && !panel.hidden && body?.active === id;
+@@ -129,6 +130,7 @@
+       .child(panelButton("asks", this.engine.config?.label ?? "Asks", "mods/tabs-asks/asks.svg", badge))
+       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
+       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
++      .children(extra.map(p => panelButton(p.id, p.label ?? p.id, p.icon)))
+       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
+         .child(button("maximize", w.platform === "windows" ? svg(`mods/tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
+         .child(button("close-window", w.platform === "windows" ? svg("mods/tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));

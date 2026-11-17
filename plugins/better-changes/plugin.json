@@ -1,0 +1,19 @@
+{
+  "name": "better-changes",
+  "description": "Better Changes: Git panel (changes, staging, commits, history) with diffs opened in one centre tab per space. Replaces Herdr's Changes panel in the base layout.",
+  "repo": "https://github.com/munza/herdr-mods",
+  "ref": "main",
+  "commit": "860626068cb7e32a1db96b2f66baadc271d5667a",
+  "license": "Apache-2.0",
+  "order": 70,
+  "vendor": [
+    "LICENSE",
+    "NOTICE",
+    "better-changes/README.md",
+    "better-changes/RECIPE.md",
+    "better-changes/mods"
+  ],
+  "install": {
+    "better-changes/mods/better-changes": "mods/better-changes"
+  }
+}

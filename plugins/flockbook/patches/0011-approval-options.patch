@@ -1,0 +1,60 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/cards.js b/herdr-app/mods/flockbook/cards.js
+--- a/herdr-app/mods/flockbook/cards.js
++++ b/herdr-app/mods/flockbook/cards.js
+@@ -161,6 +161,12 @@
+     if (c.kind === "approval") {
+       // Answered already (the sidecar keeps one answer per prompt): the keys stay with whoever has the focus.
+       if (c.answered) return false;
++      const opts = Array.isArray(c.options) && c.options.length ? c.options : null;
++      if (opts) {
++        const o = n !== null ? opts.find((x) => x.key === String(n)) : null;
++        if (o) { cx.spawn((cx) => this.choose(cx, address, o)); return true; }
++        return false;
++      }
+       if (n === 1 || n === 2) { cx.spawn((cx) => this.approve(cx, address, n === 1)); return true; }
+       return false;
+     }
+@@ -207,6 +213,12 @@
+ 
+   approve(cx, address, allow) { return this.act(cx, address, (c) => sidecar.approve(address, c.request, allow)); }
+ 
++  choose(cx, address, o) {
++    if (/^no\b/i.test(o.label)) return this.approve(cx, address, false);
++    if (o.key === "1" && /^yes$/i.test(o.label.trim())) return this.approve(cx, address, true);
++    return this.act(cx, address, (c) => sidecar.approveChoice(address, c.request, o.key, o.label));
++  }
++
+   answer(cx, address) {
+     const e = this.entry(address);
+     const answers = answersFor(e.card?.question, e.picks, e.others);
+@@ -242,6 +254,19 @@
+         .text_size(12.5).font_family(monoFont()).text_color(t.foreground).child(c.command));
+       // Answered and still drawn (the agent has not moved on, or hc still holds the key): no second answer.
+       const off = e.sending || c.answered === true;
++      const opts = Array.isArray(c.options) && c.options.length ? c.options : null;
++      if (opts) {
++        opts.forEach((o, i) => box.child(h_flex().id(`${id}-opt-${o.key}`).w_full().px(10).py(7).gap(10).items_center().rounded(8)
++          .bg(i === 0 && !off ? t.selected : t.background).border(1).border_color(i === 0 && !off ? t.accent : t.border)
++          .text_color(off ? t.dim : t.foreground)
++          .when(!off, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => cx.spawn((cx) => this.choose(cx, address, o))))
++          .child(div().flex_1().min_w(0).text_size(13).child(o.label))
++          .child(hint(o.key))));
++        if (e.sending) box.child(div().text_size(12).text_color(t.muted).child("Sending…"));
++        if (c.answered === true) box.child(div().text_size(12).text_color(t.muted).child("Answer sent. Waiting for the agent."));
++        const n = tail(); if (n) box.child(n);
++        return box;
++      }
+       box.child(h_flex().gap(8).items_center()
+         .child(button("allow", e.sending ? "Sending…" : "1  Allow once", true, (cx) => this.approve(cx, address, true), off))
+         .child(button("deny", "2  Deny", false, (cx) => this.approve(cx, address, false), off))
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/sidecar.js b/herdr-app/mods/flockbook/sidecar.js
+--- a/herdr-app/mods/flockbook/sidecar.js
++++ b/herdr-app/mods/flockbook/sidecar.js
+@@ -60,6 +60,7 @@
+ export const status = (terminal) => call("status", ["--terminal", terminal, "--cache", cachePath()]);
+ export const card = (terminal, all = false) => call("card", ["--terminal", terminal, ...(all ? ["--all"] : []), "--cache", cachePath()]);
+ export const approve = (terminal, request, allow) => call("approve", ["--terminal", terminal, "--request", request, allow ? "--allow" : "--deny", "--cache", cachePath()]);
++export const approveChoice = (terminal, request, key, label) => call("approve", ["--terminal", terminal, "--request", request, "--allow", "--choice", key, "--label", label, "--cache", cachePath()]);
+ export const answer = (terminal, request, answers) => call("answer", ["--terminal", terminal, "--request", request, "--answers", JSON.stringify(answers), "--cache", cachePath()]);
+ // Only after the user pressed Install on the card; `sha256` is the one the card showed.
+ // `--cache`: the sidecar remembers machines beside it (a platform, a missing helper), and install or remove resets that.

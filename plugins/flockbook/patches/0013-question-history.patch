@@ -1,0 +1,105 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/chat.js b/herdr-app/mods/flockbook/chat.js
+--- a/herdr-app/mods/flockbook/chat.js
++++ b/herdr-app/mods/flockbook/chat.js
+@@ -9,9 +9,9 @@
+ import { now, record, flush, loadTiming } from "./timing.js";
+ import * as sidecar from "./sidecar.js";
+ import { emptyFeed, applyFeed, applyOlder, olderFrom } from "./feedstate.js";
+-import { GUTTER, columnWidth, rowHeight } from "./estimate.js";
++import { GUTTER, columnWidth, rowHeight, qaPairs } from "./estimate.js";
+ import { ROW_PAD_Y, BUBBLE_PAD_X, BUBBLE_PAD_Y, BUBBLE_GAP, IMAGES_FS, bubbleWidth, bubbleTextWidth, CHIP_H, CHIP_PAD_Y, CHIP_GAP, OPEN_INDENT,
+-  CALL_H, SEP_H, FOOTER_H, STATUS_H, CARD_ROW_H, OTHER_H } from "./metrics.js";
++  CALL_H, SEP_H, FOOTER_H, STATUS_H, CARD_ROW_H, OTHER_H, QA_LABEL_FS, QA_LABEL_H, QA_GAP, QA_PAIR_GAP } from "./metrics.js";
+ import { Composer, MODE_ACTION, MODE_CONTEXT } from "./composer.js";
+ import { markdownView, codeBlockAt } from "./mdblocks.js";
+ import { textScale } from "./config.js";
+@@ -208,13 +208,30 @@
+           .child(pending ? svg(icon("spinner")).size(11).text_color(t.working).spin(SPIN_MS) : svg(icon("check")).size(12).text_color(t.done))
+           .child(div().max_w(Math.floor(this.colWidth() * 0.8)).truncate().child(pending ? `Running · ${what}` : what)));
+       }
+-      case "question":
+-        return this.note(t, row.question?.state === "pending" ? "The agent asks a question" : "Question answered");
++      case "question": {
++        const qa = qaPairs(row);
++        if (qa) return this.questionAnswers(row, qa, t);
++        const state = row.question?.state;
++        return this.note(t, state === "pending" ? "The agent asks a question" : state === "declined" ? "Question declined" : "Question answered");
++      }
+       default:
+         return div().h(OTHER_H);
+     }
+   }
+ 
++  questionAnswers(row, qa, t) {
++    const w = this.colWidth();
++    return v_flex().w_full().py(ROW_PAD_Y).gap(QA_PAIR_GAP).children(qa.map((p, i) => v_flex().w_full().gap(QA_GAP)
++      .child(h_flex().h(QA_LABEL_H).items_center().gap(6).text_size(QA_LABEL_FS).text_color(t.muted)
++        .child(div().size(6).flex_none().rounded(3).bg(t.blocked))
++        .child(div().min_w(0).truncate().child(p.label)))
++      .child(div().w_full().text_color(t.foreground).child(markdownView(`${row.id}-q${i}`, p.text, t, w, textScale())))
++      .child(h_flex().w_full().justify_end()
++        .child(v_flex().max_w(bubbleWidth(w)).px(BUBBLE_PAD_X).py(BUBBLE_PAD_Y).rounded(16).bg(t.raised)
++          .text_color(p.skipped ? t.muted : t.foreground)
++          .child(markdownView(`${row.id}-a${i}`, p.answer, t, bubbleTextWidth(w), textScale()))))));
++  }
++
+   note(t, text) {
+     return h_flex().w_full().h(CARD_ROW_H).items_center().child(div().px(12).py(6).rounded(10).border(1).border_color(t.border)
+       .text_size(12.5).text_color(t.muted).truncate().child(oneLine(text)));
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/estimate.js b/herdr-app/mods/flockbook/estimate.js
+--- a/herdr-app/mods/flockbook/estimate.js
++++ b/herdr-app/mods/flockbook/estimate.js
+@@ -7,7 +7,7 @@
+ // No percentage on top: on a long pasted message 8% of the height was many lines of empty space.
+ import { splitBlocks, tableCells } from "./blocks.js";
+ import { ROW_PAD_Y, BUBBLE_PAD_Y, bubbleTextWidth, BUBBLE_GAP, IMAGES_LINE_H, CHIP_ROW, CHIP_GAP, OPEN_INDENT, CALL_H, CALLS_PAD,
+-  SEP_H, FOOTER_H, STATUS_H, CARD_ROW_H, OTHER_H } from "./metrics.js";
++  SEP_H, FOOTER_H, STATUS_H, CARD_ROW_H, OTHER_H, QA_LABEL_H, QA_GAP, QA_PAIR_GAP } from "./metrics.js";
+ 
+ export const READ_W = 760;  // the reading column's width at most
+ export const GUTTER = 24;   // each side of the column
+@@ -262,11 +262,31 @@
+     case "sep": return SEP_H;
+     case "footer": return FOOTER_H;
+     case "status": return STATUS_H;
+-    case "perm": case "question": return CARD_ROW_H;
++    case "question": { const qa = qaPairs(row); return qa ? qaHeight(qa, width, k, zoom) : CARD_ROW_H; }
++    case "perm": return CARD_ROW_H;
+     default: return OTHER_H;
+   }
+ }
+ 
++export function qaPairs(row) {
++  const q = row?.question;
++  if (q?.state !== "answered" || !Array.isArray(q.answers)) return null;
++  const qs = q.questions ?? [];
++  if (!qs.length || q.answers.length !== qs.length) return null;
++  return qs.map((x, i) => ({
++    label: x.header ? `The agent asked · ${x.header}` : "The agent asked",
++    text: x.text || "",
++    answer: String(q.answers[i] ?? "").trim() || "Skipped",
++    skipped: !String(q.answers[i] ?? "").trim(),
++  }));
++}
++
++function qaHeight(pairs, width, k, zoom) {
++  const one = (p) => QA_LABEL_H + QA_GAP + markdownHeight(p.text, width, null, k, zoom) + QA_GAP
++    + markdownHeight(p.answer, bubbleTextWidth(width), null, k, zoom) + 2 * BUBBLE_PAD_Y;
++  return 2 * ROW_PAD_Y + pairs.reduce((h, p) => h + one(p), 0) + (pairs.length - 1) * QA_PAIR_GAP;
++}
++
+ export function sizes(rows, width, open = new Set(), k = 1, zoom = 1) {
+   return rows.map((r) => rowHeight(r, width, open.has(r.id), k, zoom));
+ }
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/herdr-app/mods/flockbook/metrics.js b/herdr-app/mods/flockbook/metrics.js
+--- a/herdr-app/mods/flockbook/metrics.js
++++ b/herdr-app/mods/flockbook/metrics.js
+@@ -36,3 +36,8 @@
+ export const STATUS_H = 34;
+ export const CARD_ROW_H = 44;   // a running call (perm) or a question
+ export const OTHER_H = 30;
++
++export const QA_LABEL_FS = 11.5;
++export const QA_LABEL_H = Math.ceil(QA_LABEL_FS * 1.618);
++export const QA_GAP = 6;
++export const QA_PAIR_GAP = 14;

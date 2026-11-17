@@ -1,0 +1,101 @@
+diff -ruN a/xplat/herdr-core/src/question/claude_exact.rs b/xplat/herdr-core/src/question/claude_exact.rs
+--- a/xplat/herdr-core/src/question/claude_exact.rs
++++ b/xplat/herdr-core/src/question/claude_exact.rs
+@@ -164,7 +164,8 @@
+     let mut chars: Vec<String> = vec![];
+     let mut starts: HashMap<usize, usize> = HashMap::new();
+     for (i, l) in region.iter().enumerate() {
+-        let b = bare(l);
++        let t = trim_ws(l);
++        let b = bare(t.strip_prefix('│').unwrap_or(t));
+         if !b.is_empty() {
+             starts.insert(chars.len(), i);
+             chars.extend(b.graphemes(true).map(String::from));
+@@ -298,7 +299,8 @@
+     let mut chars: Vec<String> = vec![];
+     let mut starts: HashSet<usize> = HashSet::new();
+     for l in &lines[title + 1..] {
+-        let b = bare(l);
++        let t = trim_ws(l);
++        let b = bare(t.strip_prefix('│').unwrap_or(t));
+         if !b.is_empty() {
+             starts.insert(chars.len());
+             chars.extend(b.graphemes(true).map(String::from));
+diff -ruN a/xplat/herdr-core/src/question/mod.rs b/xplat/herdr-core/src/question/mod.rs
+--- a/xplat/herdr-core/src/question/mod.rs
++++ b/xplat/herdr-core/src/question/mod.rs
+@@ -1166,7 +1166,10 @@
+             if marked {
+                 stray_mark = true;
+             }
+-            text.push(t.to_string());
++            let t = t.strip_prefix('│').map(trim_ws).unwrap_or(t);
++            if !t.is_empty() {
++                text.push(t.to_string());
++            }
+         }
+     }
+     // The last row is the "Other" row.
+diff -ruN a/xplat/herdr-core/src/question/tests.rs b/xplat/herdr-core/src/question/tests.rs
+--- a/xplat/herdr-core/src/question/tests.rs
++++ b/xplat/herdr-core/src/question/tests.rs
+@@ -620,6 +620,28 @@
+ }
+ 
+ #[test]
++fn claude_2_1_323_question_gutter() {
++    let screen = "────────────────────────────────────────\n ☐ Teste\n\n│ Teste final do campo livre: no modo chat, escreva uma resposta com acentos e pelo menos uma quebra de linha feita\n│ com Shift+Enter, depois aperte Enter para enviar. Qual é a sua comida preferida?\n\n❯ 1. Feijoada\n     Opção de controle; use o campo livre para o teste.\n  2. Lasanha\n     Opção de controle; use o campo livre para o teste.\n  3. Type something.\n────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n";
++    let (_, shown) = claude_screen(screen).expect("the picker is read");
++    assert_eq!(
++        shown.text,
++        "Teste final do campo livre: no modo chat, escreva uma resposta com acentos e pelo menos uma quebra de linha feita com Shift+Enter, depois aperte Enter para enviar. Qual é a sua comida preferida?",
++        "2.1.323 draws a │ gutter before the question text: not part of the text"
++    );
++    let q = request(
++        "t",
++        "claude",
++        vec![question(
++            "Teste",
++            "Teste final do campo livre: no modo chat, escreva uma resposta com acentos e pelo menos uma quebra de linha feita com Shift+Enter, depois aperte Enter para enviar. Qual é a sua comida preferida?",
++            vec![opt("Feijoada"), opt("Lasanha")],
++            false,
++        )],
++    );
++    assert!(screen_shows(&q, screen), "the gutter does not hide the question");
++}
++
++#[test]
+ fn question_keys_non_ascii_other() {
+     let opts2 = || vec![opt("A"), opt("B")];
+     let single = request("t", "claude", vec![question("H", "Pick one?", opts2(), false)]);
+@@ -898,6 +920,30 @@
+     claude_exact(q, k, s, other, focus, c.as_ref())
+ }
+ 
++#[test]
++fn claude_hook_exact_2_1_323_gutter() {
++    let q = hooked(
++        "toolu_gutter",
++        json!([{"question":"Teste final do campo livre: no modo chat, escreva uma resposta com acentos e pelo menos uma quebra de linha feita com Shift+Enter, depois aperte Enter para enviar. Qual é a sua comida preferida?","header":"Teste","multiSelect":false,
++            "options":[{"label":"Feijoada","description":"Opção de controle; use o campo livre para o teste."},{"label":"Lasanha","description":"Opção de controle; use o campo livre para o teste."}]}]),
++    );
++    let screen = "────────────────────────────────────────\n ☐ Teste\n\n│ Teste final do campo livre: no modo chat, escreva uma resposta com acentos e pelo menos uma quebra de linha feita\n│ com Shift+Enter, depois aperte Enter para enviar. Qual é a sua comida preferida?\n\n❯ 1. Feijoada\n     Opção de controle; use o campo livre para o teste.\n  2. Lasanha\n     Opção de controle; use o campo livre para o teste.\n  3. Type something.\n────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n";
++    assert!(ex(&q, 0, screen, None, FieldFocus::Auto, None), "2.1.323: the │ gutter before the question text is not text");
++    let other_open = screen.replace("❯ 1. Feijoada", "  1. Feijoada").replace("  3. Type something.", "❯ 3. Type something.");
++    assert!(ex(&q, 0, &other_open, Some(""), FieldFocus::Auto, None), "2.1.323: the empty Other row with the focus");
++}
++
++#[test]
++fn claude_review_exact_2_1_323_gutter() {
++    let q = hooked(
++        "toolu_review_gutter",
++        json!([{"question":"Qual esporte você prefere?","header":"Esporte","multiSelect":false,"options":[{"label":"Futebol","description":"a"},{"label":"Corrida","description":"b"}]},
++            {"question":"Qual clima você prefere?","header":"Clima","multiSelect":false,"options":[{"label":"Frio","description":"c"},{"label":"Calor","description":"d"}]}]),
++    );
++    let screen = "────────────────────────────────────────\n←  ☒ Esporte  ☒ Clima  ✔ Submit  →\n\nReview your answers\n\n ● Qual esporte você prefere?\n   → Futebol\n │ ● Qual clima você prefere?\n   → Frio\n\nReady to submit your answers?\n\n❯ 1. Submit answers\n  2. Cancel\n";
++    assert!(claude_review_exact(&q, &[ans(&[0]), ans(&[0])], screen), "2.1.323: the │ before a later question's ● is not text");
++}
++
+ /// checksClaudeHook: the exact rendering (Claude Code 2.1.296, live).
+ #[test]
+ fn claude_hook_exact() {
