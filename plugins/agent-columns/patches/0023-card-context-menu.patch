@@ -1,0 +1,238 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -1,6 +1,7 @@
+ import { View, div, svg, image } from "gpui-kit";
+ import { h_flex, v_flex, InputState, Input } from "gpui-base";
+-import { theme, window, terminals, agents, spaces, panes, props, run, setAgentOrder, layout, shared, setShared, settings } from "herdr";
++import { theme, window, terminals, agents, spaces, panes, props, run, setAgentOrder, layout, shared, setShared, settings,
++  openOverlay, closeOverlay, exec, notify } from "herdr";
+ 
+ const C = {
+   get ink() { return theme().foreground; }, get muted() { return theme().muted; },
+@@ -97,6 +98,102 @@
+ const focusAgent = (a) => a.labelled
+   ? (run("space.select", { id: a.space }), run("tab.select", { id: a.tab }), run("pane.focus", { pane: a.pane }))
+   : run("agent.focus", { terminal: a.address });
++// --- Card menu (right click) -------------------------------------------------------------
++// The session of each Claude terminal comes from its hc labels cc.session / cc.transcript, set
++// by the Claude Code hook claude-hooks/hc-session-label.sh on every machine.
++const labelsOf = (addr) => terminals().find((t) => t.address === addr)?.labels ?? {};
++const machineOf = (a) => spaces().find((s) => s.id === a.space)?.machine ?? null;
++const nameOf = (a) => ((!a.labelled || /^\d+$/.test(a.tab_name)) && a.title ? a.title : a.tab_name);
++const clip = (s, n) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
++const ago = (ts) => {
++  const m = Math.floor((Date.now() - Date.parse(ts)) / 60000);
++  return !(m >= 1) ? "agora" : m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.floor(m / 60)} h` : `há ${Math.floor(m / 1440)} d`;
++};
++// The last 512 KB of a transcript (readTextFile stops at 1 MiB; transcripts grow past it).
++// The first line read is cut short and simply fails to parse. Windows paths read through PowerShell.
++const TAIL = 524288;
++const tailFile = async (path, on) => {
++  const win = /^[A-Za-z]:[\\/]/.test(path);
++  const ps = "& { $f=[IO.File]::Open($args[0],'Open','Read','ReadWrite'); $n=[Math]::Min(" + TAIL + ",$f.Length); $f.Seek(-$n,'End')|Out-Null; " +
++    "$b=New-Object byte[] $n; $r=$f.Read($b,0,$n); $f.Close(); [Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Out.Write([Text.Encoding]::UTF8.GetString($b,0,$r)) } '" + path.replace(/'/g, "''") + "'";
++  const r = win
++    ? await exec("powershell.exe", ["-NoProfile", "-NoLogo", "-Command", ps], { on, timeout: 8000 })
++    : await exec("tail", ["-c", String(TAIL), path], { on, timeout: 8000 });
++  return r.code === 0 ? r.stdout : null;
++};
++// From a transcript (JSONL), the newest of: Claude's recap (system away_summary) or its last
++// reply. A reply is cut to its first paragraph without code, a recap loses its "turn off" note.
++const digest = (text) => {
++  const lines = text.split("\n");
++  let recap = null, reply = null;
++  for (let i = lines.length - 1; i >= 0 && !(recap && reply); i--) {
++    const l = lines[i];
++    if (!recap && l.includes('"away_summary"')) {
++      try { const d = JSON.parse(l); if (d.subtype === "away_summary" && d.content) recap = { kind: "Resumo", text: d.content, at: d.timestamp, i }; } catch {}
++    } else if (!reply && l.includes('"type":"assistant"')) {
++      try {
++        const d = JSON.parse(l);
++        const t = (Array.isArray(d.message?.content) ? d.message.content : []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
++        const para = t.replace(/```[\s\S]*?```/g, "").split(/\n\s*\n/).map((p) => p.replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim()).find(Boolean);
++        if (para) reply = { kind: "Última resposta", text: para, at: d.timestamp, i };
++      } catch {}
++    }
++  }
++  const pick = recap && (!reply || recap.i > reply.i) ? recap : reply;
++  if (!pick) return null;
++  const full = pick.text.replace(/\s*\((turn off|disable)[^)]*recaps?[^)]*\)\s*$/i, "").trim();
++  return { kind: pick.kind, at: pick.at, full, short: clip(full, 140) };
++};
++// Mark as unread: the card keeps its unseen wash until you focus it again. Kept in shared
++// state (the menu is another copy of this mod); a mark made while focused waits for a blur.
++const unread = () => shared("agent-columns.unread") ?? {};
++const setUnread = (addr, v) => {
++  const u = { ...unread() };
++  if (v === undefined) delete u[addr]; else u[addr] = v;
++  setShared("agent-columns.unread", u);
++};
++const blurred = new Set();
++// Peek: the agent's terminal in a dialog, framed by a 3 px border (outside dark, inside light)
++// in its column's peek color, under a header that says it's a preview.
++const PEEK = {
++  pink: ["#db2777", "#ec4899", "#f472b6"],
++  orange: ["#ea580c", "#f97316", "#fb923c"],
++  lilac: ["#8b5cf6", "#a78bfa", "#c4b5fd"],
++};
++const peekColors = (a) => (["blocked", "error"].includes(eff(a)) ? PEEK.pink : eff(a) === "working" ? PEEK.orange : PEEK.lilac);
++const openPeek = (a, big = false) => {
++  const g = peekColors(a);
++  const band = (i, child) => ({ id: `peek-b${i}`, type: "column", background: g[i], padding: 1, children: [child] });
++  openOverlay({
++    kind: "dialog", frame: "none", width: big ? 1 : 0.8, height: big ? 1 : 0.8,
++    layout: band(0, band(1, band(2, { id: "peek-body", type: "column", children: [
++      { id: "peek-head", type: "block", size: { px: 30 }, content: { mod: "agent-columns", props: { role: "peek", address: a.address, big } } },
++      { id: "peek-term", type: "block", content: { terminal: a.address } },
++    ] }))),
++  });
++};
++const MENU_W = 300;
++const menuItems = (a) => {
++  const l = labelsOf(a.address);
++  const cwd = terminals().find((t) => t.address === a.address)?.cwd ?? panes().find((p) => p.terminal === a.address)?.cwd;
++  return [
++    ["peek", "monitor", "Espiar", () => openPeek(a)],
++    ["unread", null, "Marcar como não lida", () => setUnread(a.address, { wasFocused: Boolean(a.focused) })],
++    !a.labelled && ["pin", a.pinned ? "pin-off" : "pin", a.pinned ? "Desafixar" : "Fixar no topo", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned })],
++    l["cc.session"] && ["resume", "file-text", "Copiar claude --resume", (cx) => {
++      const cmd = `claude --resume ${l["cc.session"]}`;
++      cx.write_to_clipboard(cmd);
++      notify({ title: "Copiado", body: cmd, level: "success", timeout: 2500 });
++    }],
++    cwd && ["shell", "terminal", "Abrir terminal na pasta dele", () => { focusAgent(a); run("terminal.open", { folder: cwd, place: "right" }); }],
++    ["close", "x", "Fechar agente", () => openOverlay({ mod: "confirm", kind: "dialog", width: 420, height: 200, props: {
++      title: `Fechar ${nameOf(a)}?`,
++      detail: "O terminal do agente é encerrado. A conversa pode ser retomada com claude --resume.",
++      command: { name: "terminal.kill", args: { terminal: a.address } } } }), true],
++  ].filter(Boolean);
++};
++const openMenu = (a) => openOverlay({ mod: "agent-columns", kind: "popup", width: MENU_W, height: 106 + menuItems(a).length * 28,
++  props: { role: "card-menu", address: a.address } });
+ const matches = (a) => {
+   const q = (shared("agent-columns.filter") ?? "").trim().toLowerCase();
+   return !q || [a.tab_name, a.title, a.address, a.program?.name, a.space_name].some((v) => v?.toLowerCase().includes(q));
+@@ -122,6 +219,17 @@
+     cx.timer.every(30000, (cx) => cx.notify());
+     this.acx = cx;
+   }
++  loadSummary(cx) {
++    const a = allAgents().find((x) => x.address === props().address);
++    const path = labelsOf(props().address)["cc.transcript"];
++    this.sum = a && path ? "loading" : null;
++    if (!this.sum) return;
++    cx.spawn(async (cx) => {
++      const text = await tailFile(path, machineOf(a)).catch(() => null);
++      this.sum = text ? digest(text) : null;
++      cx.notify();
++    });
++  }
+   // Pane header traffic light: an 8 px dot with a hover halo. Press squeezes it, release
+   // springs it up past its size and back (Apple-style), and the command runs as it settles.
+   light(id, color, tip, onClick, glyph) {
+@@ -152,7 +260,15 @@
+     // Unseen: Herdr's "done" (finished while you weren't looking), or the card changed
+     // column since you last had it focused. Unseen cards take a faint wash of their column color.
+     if (!ghost && (a.focused || memo.seen[a.address] === undefined)) memo.seen[a.address] = eff(a);
+-    const unseen = !ghost && !a.focused && (a.status === "done" || memo.seen[a.address] !== eff(a));
++    // Marked unread from the card menu: clear once you focus it (after a blur, if it was marked while focused).
++    const mark = !ghost && unread()[a.address];
++    if (mark && !a.focused) blurred.add(a.address);
++    if (mark && a.focused && (blurred.has(a.address) || !mark.wasFocused) && !this.clearing?.has(a.address)) {
++      (this.clearing ??= new Set()).add(a.address);
++      blurred.delete(a.address);
++      this.acx.timer.after(0, () => { this.clearing.delete(a.address); setUnread(a.address, undefined); });
++    }
++    const unseen = !ghost && !a.focused && (Boolean(mark) || a.status === "done" || memo.seen[a.address] !== eff(a));
+     // Column-change effect (any column to any other). Exit (ghost left in the old column): the card
+     // folds right-to-left into its color bar. Enter: the bar draws down, then the card
+     // slides out of it to the right. Widths are px while animating, from the column's size.
+@@ -194,6 +310,7 @@
+       .bg(hollow ? clear : unseen ? state.color + "1a" : C.white).border(1).border_l(0).border_color(hollow ? clear : ring).cursor_pointer()
+       .hover(s => s.border_color(state.color))
+       .on_click(() => { focusAgent(a); if (view() === "board") setView("split"); })
++      .when(!ghost, (el) => el.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openMenu(a); }))
+       .child(div().id(`${ghost ? "ghost-" : ""}bar-${a.address}-v${ghost ? ghost.ver : memo.cardVer[a.address] ?? 0}`).w(BAR).h(barH).bg(state.color).flex_none()
+         .transition("height", { duration: 450, easing: "ease-out" }))
+       .child(v_flex().when(fxW === null, (el) => el.flex_1()).when(fxW !== null, (el) => el.w(W - BAR).flex_none()).min_w(0).px(12).py(10).gap(7)
+@@ -202,7 +319,9 @@
+           .when(Boolean(me?.parent) && !grouped, (el) => el.child(div().max_w(120).truncate().px(5).rounded(4).bg(theme().selected).text_color(C.violet)
+             .child(`↳ sub-agent of ${parent?.tab_name ?? me.parent}`)))
+           .when(kids > 0, (el) => el.child(div().flex_none().px(5).rounded(4).bg(theme().selected).text_color(C.violet)
+-            .child(`${kids} sub-agent${kids > 1 ? "s" : ""}`))).child(div().child(a.address)))
++            .child(`${kids} sub-agent${kids > 1 ? "s" : ""}`)))
++          .when(Boolean(a.pinned), (el) => el.child(svg("mods/workspace-chrome/pin.svg").size(11).text_color(C.violet).flex_none()))
++          .child(div().child(a.address)))
+         .child(h_flex().items_center().gap(6)
+           .child(div().flex_1().min_w(0).text_size(13).font_semibold().text_color(C.ink).truncate().child((!a.labelled || /^\d+$/.test(a.tab_name)) && a.title ? a.title : a.tab_name))
+           .child(archived(a)
+@@ -218,6 +337,49 @@
+         .child(h_flex().items_center().justify_between().text_size(10).text_color(C.muted)
+           .child(div().truncate().child(a.space_name)).child(div().flex_none().child(elapsed)))));
+   }
++  // Right-click menu of a card: what the agent is about (recap or last reply), then actions.
++  cardMenu() {
++    const t = theme();
++    const a = allAgents().find((x) => x.address === props().address);
++    if (!a) return div().size_full().p(12).text_size(12).text_color(t.muted).child("Agente não encontrado");
++    // props() isn't there yet in init for an overlay copy: start reading on the first render.
++    if (this.sum === undefined) this.loadSummary(this.acx);
++    const s = this.sum;
++    const head = s === "loading" ? "Carregando…" : s ? `${s.kind.toUpperCase()} · ${ago(s.at)}` : "Sem resumo ainda";
++    const item = ([id, ico, label, act, danger]) => h_flex().id(`menu-${id}`).h(28).px(10).gap(9).items_center().rounded(5)
++      .cursor_pointer().text_size(12).text_color(danger ? t.blocked : t.foreground).hover((st) => st.bg(t.hover))
++      .child(ico ? svg(`mods/workspace-chrome/${ico}.svg`).size(13).flex_none().text_color(danger ? t.blocked : t.muted)
++        : div().size(13).flex_none().flex().items_center().justify_center().child(dot(t.accent, 7)))
++      .child(label)
++      .on_click((_e, cx) => { closeOverlay(props().overlay); act(cx); });
++    return v_flex().size_full().bg(t.popover ?? t.surface)
++      .child(v_flex().id("menu-summary").h(86).flex_none().px(12).pt(9).pb(8).gap(4).border_b(1).border_color(C.line)
++        .when(Boolean(s?.full), (el) => el.tooltip(s.full))
++        .child(h_flex().gap(6).items_center().text_size(10).text_color(t.dim)
++          .child(div().flex_1().min_w(0).truncate().font_semibold().text_color(t.muted).child(nameOf(a)))
++          .child(div().flex_none().child(head)))
++        .child(div().max_h(49).overflow_hidden().whitespace_normal().text_size(11.5).line_height(1.4).text_color(s?.short ? t.foreground : t.dim)
++          .child(s?.short ?? (s === "loading" ? "" : "Este agente ainda não tem resumo nem resposta registrada."))))
++      .child(v_flex().p(6).gap(0).children(menuItems(a).map(item)));
++  }
++  // Header of a peek dialog: like the pane header, plus a PRÉ-VISUALIZAÇÃO pill in the peek color.
++  // Yellow: grow to the whole window and back; green: go to the agent; blue: close the preview only.
++  peekHead() {
++    const t = theme();
++    const p = props();
++    const a = allAgents().find((x) => x.address === p.address);
++    const g = a ? peekColors(a) : PEEK.lilac;
++    const close = () => closeOverlay(p.overlay);
++    return h_flex().size_full().px(13).items_center().gap(7).bg(theme().raised).border_b(1).border_color(C.line)
++      .child(icon(a?.program, 14)).child(div().text_size(11).text_color(C.ink).child(a?.program?.name ?? "Terminal"))
++      .child(div().px(6).py(1).rounded(4).bg(g[0]).text_size(9.5).font_weight(800).text_color("#ffffff").child("PRÉ-VISUALIZAÇÃO"))
++      .when(Boolean(a), (el) => el.child(div().min_w(0).truncate().text_size(11).text_color(C.muted).child(`· ${nameOf(a)}`)))
++      .child(div().flex_1())
++      .child(h_flex().gap(2).items_center()
++        .child(this.light("peek-grow", "#f5c518", p.big ? "Tamanho normal" : "Janela inteira", () => { close(); if (a) openPeek(a, !p.big); }))
++        .child(this.light("peek-go", "#22c55e", "Ir para o agente", () => { close(); if (a) { focusAgent(a); if (view() === "board") setView("split"); } }, "↗"))
++        .child(this.light("peek-close", "#3b82f6", "Fechar pré-visualização", close, "✕")));
++  }
+   // A parent with sub-agents in the same column becomes one framed group: the parent
+   // full width, its children indented. Anything else stays a plain card.
+   groups(cards, state) {
+@@ -271,6 +433,8 @@
+         .child(div().text_size(11).text_color(C.muted).child(`${active?.name ?? ""} / ${tab?.name ?? ""}`))
+         .child(div().flex_1()).child(div().text_size(10).text_color(C.muted).child("TERMINALS"));
+     }
++    if (role === "card-menu") return this.cardMenu();
++    if (role === "peek") return this.peekHead();
+     if (role === "pane") {
+       const p = panes().find(p => p.pane === props().pane);
+       const state = p ? STATES.find(s => s.key === eff(p)) : null;
+@@ -287,7 +451,8 @@
+     const shown = STATES.filter((s) => s === archive ? showArchived() : s.key !== "error" || list.some((a) => inCol(a, s)));
+     // Newest arrival on top: remember the seq at which each agent entered its current column.
+     for (const a of list) if (memo.entered[a.address]?.status !== eff(a)) memo.entered[a.address] = { status: eff(a), seq: a.seq };
+-    const recent = (x, y) => memo.entered[y.address].seq - memo.entered[x.address].seq;
++    // Pinned agents (terminal.pin) first, then newest arrival.
++    const recent = (x, y) => (y.pinned ? 1 : 0) - (x.pinned ? 1 : 0) || memo.entered[y.address].seq - memo.entered[x.address].seq;
+     // Any column change: leave a folding ghost in the old column, then draw the card in.
+     for (const a of list) {
+       const prev = memo.slot[a.address];

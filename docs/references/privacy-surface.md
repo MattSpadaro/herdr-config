@@ -13,7 +13,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T16:00:00-03:00 }
 |---|---|---|---|
 | Monokai | nothing | nothing | none |
 | Agent Ask | `hc read/get/keys/send`; `sh -c` (log append). Model calls removed by patch 0002 | `<home>/asks.json`; agent screens | none |
-| Agent Columns | none (the Usage dialog `agent-columns-usage` is not installed since 2026-11-17) | none | none |
+| Agent Columns | on a card's right-click menu only: `tail -c 524288 <transcript>` (or `powershell.exe` reading the same tail for a Windows path) on the agent's machine (patch 0023); `confirm` dialog before `terminal.kill`. The Usage dialog `agent-columns-usage` is not installed since 2026-11-17 | the transcript named by the terminal's `cc.transcript` label (last 512 KB; shows the recap or first paragraph of the last reply). Writes the clipboard on Copy `claude --resume` | none |
 | Flockbook | `flockbook-modfeed` (which runs `hc`); `hc read` and `hc keys shift+tab` from the mod (mode chip, patch 0007); `xdg-open` on the folder tag's Open in file manager; `osascript` on macOS | session logs under `~/.claude`, `~/.codex`, `~/.grok`, `~/.cursor`, `~/.pi`, `~/.gemini`; the agent terminal's last lines every 2 s while the chat shows. Writes `~/.cache/flockbook/gate-refusal.txt` (the expected question and the terminal screen) when the key gate refuses an answer on screen grounds (helper patch 0003) | none from a source build (update check disabled) |
 | Better Changes | `git` on the space's machine: reads, plus `add`, `reset -q HEAD`, `rm --cached` (index only) and `commit` / `commit --amend` on click. Never push or fetch | the shown repository | none |
 | Better Icons | nothing | nothing | none |
@@ -22,5 +22,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T16:00:00-03:00 }
 | chowdr-herdr-ctrl (this repo) | nothing | nothing; stores terminal addresses in `shared.json` | none |
 | agent-usage (this repo) | `python3 -I usage.py`; `hc get` per agent; `hc send /compact` or `/clear` on click | `~/.claude/sessions`, transcripts and `subagents/` under `~/.claude/projects`, `~/.codex/sessions` and `session_index.jsonl`. Writes `~/.claude/settings.json` only on Connect/Disconnect (backup in `data/agent-usage/settings.backup.json`). `tap.sh`, run by Claude Code, writes each statusline payload (session id, cwd, model, limits, context) to `data/agent-usage/sessions/` (mode 700/600, kept 8 days). Never reads credentials | none |
 | folder-picker (this repo) | `find -L` (one folder level) and `test -d`, local | the folders browsed in the popup. Writes `data/folder-picker.json` (default folder, favorites) on click | none |
+
+| sysstat (external mod, DarkoKuzmanovic/herdr-mods) | `sh -c 'command -v btop || command -v htop || echo top'` on click, then a `monitor` tab | `/proc/stat`, `/proc/meminfo`, amdgpu sysfs of the shown space's machine, every 2 s | none |
+| claude-hooks/hc-session-label.sh (this repo, Claude Code hook) | `hc label` on its own terminal | the hook payload (session id, transcript path) | none |
 
 Keys and text are only sent to agents on an explicit click or key press, in both Agent Ask and Flockbook.

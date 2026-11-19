@@ -1,0 +1,44 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -39,6 +39,31 @@
+     if (!node(layout(), "cols-cards")?.size?.px) run("layout.resize", { id: "cols-cards", px: 355 });
+   }
+ };
++// Yellow pane light. One click: pane.zoom. A second click within 1 s while in Split keeps the
++// pane zoomed and hides the board (Terminal view): only that terminal is left. The next click
++// undoes both. Switching views by hand in between forgets the solo state.
++const zoom = { at: 0, pane: null, solo: null };
++const zoomClick = (pane) => {
++  const now = Date.now();
++  const zoomed = (id) => panes().find((x) => x.pane === id)?.zoomed;
++  if (zoom.solo && view() !== "terminal") zoom.solo = null;
++  if (zoom.solo) {
++    const s = zoom.solo;
++    zoom.solo = null; zoom.at = 0;
++    if (zoomed(s.pane)) run("pane.zoom", { pane: s.pane });
++    setView(s.view);
++    return;
++  }
++  if (zoom.pane === pane && now - zoom.at < 1000 && view() === "split") {
++    zoom.at = 0;
++    if (!zoomed(pane)) run("pane.zoom", { pane });
++    zoom.solo = { pane, view: "split" };
++    setView("terminal");
++    return;
++  }
++  zoom.at = now; zoom.pane = pane;
++  run("pane.zoom", { pane });
++};
+ // Windows machines: ConPTY drops the OSC 7501 status, so their agents never reach agents().
+ // A Claude Code hook there (hc-agent-state.sh) labels its terminal cc.state / cc.seq instead;
+ // those terminals become cards here. "done" turns "idle" once you focus it, as Herdr does.
+@@ -255,7 +280,7 @@
+         .when(Boolean(state), (el) => el.child(dot(state.color, 6)))
+         .child(div().flex_1())
+         .child(h_flex().gap(2).items_center()
+-          .child(this.light("pane-zoom", "#f5c518", p?.zoomed ? "Restore" : "Full screen", () => run("pane.zoom", { pane: props().pane })))
++          .child(this.light("pane-zoom", "#f5c518", p?.zoomed ? "Restore" : "Full screen", () => zoomClick(props().pane)))
+           .child(this.light("pane-close", "#ef4444", "Close", () => run("pane.close", { pane: props().pane }), "✕")));
+     }
+     const archive = STATES.find((s) => s.key === "archived");

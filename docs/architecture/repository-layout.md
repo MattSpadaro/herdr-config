@@ -25,6 +25,7 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T09:15:00-03:00 }
     │   ├── plugin.json        repo, ref, pinned commit, vendor list, install map, keys, helpers
     │   ├── upstream/          pristine snapshot of the pinned commit, never edited by hand
     │   └── patches/NNNN-*.patch   unified diffs applied in order on top of upstream/
+    ├── claude-hooks/          Claude Code hooks copied by hand into each machine's ~/.claude (session labels)
     ├── docs/                  this OKF bundle
     ├── build/                 generated (gitignored)
     └── work/                  editable staging trees (gitignored)
