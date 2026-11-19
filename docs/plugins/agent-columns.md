@@ -30,6 +30,7 @@ Only the mods `agent-columns` (board, header and pane header by `props.role`), `
 6. `0006-smaller-pane-lights.patch`: the traffic lights are 6 px dots (the status dot's size) in 14 px hit areas, and the status dot is drawn only when the pane has a known agent state (no grey dot).
 7. `0007-animated-pane-lights.patch`: the lights are 8 px with a hover halo; a click springs the dot to 13 px (overshoot) and runs the command 160 ms later. The close light carries a black ✕, and the status dot moves next to the program name.
 8. `0008-unseen-tint-apple-press.patch`: a card you have not seen (Herdr status `done`, or its column changed since it was last focused) gets its column color as a faint background (`1a`) and border (`66`). The pane lights squeeze to 6 px on press, spring to 14 px on release (response 380 ms, damping 0.55) and run their command 300 ms after the click.
+9. `0009-newest-card-on-top.patch`: each column lists the agent that entered it most recently first (the `seq` recorded when its column changed); the agent order follows. The pane light pops to 11 px instead of 14.
 
 The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
 
