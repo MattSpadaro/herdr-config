@@ -1,6 +1,6 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { exec, hc, appHome, agents, terminals, focused, layout, props, run, theme, notify, openOverlay, nextCommand } from "herdr";
+import { exec, hc, appHome, agents, terminals, panes, spaces, focused, layout, props, run, theme, notify, openOverlay, nextCommand } from "herdr";
 import { WARN, URGENT, tokens, money, percent, ago, resetShort, resetLong, elapsed, levelColor, cacheHit, modelName, find } from "./format.js";
 
 const PANEL = "panel";
@@ -17,6 +17,38 @@ const COST_TIP = "API list-price equivalent of the tokens, not what a subscripti
 const script = () => `${appHome()}/mods/agent-usage/usage.py`;
 const kindOf = (app) => (/codex/i.test(app ?? "") ? "codex" : /claude/i.test(app ?? "") ? "claude" : null);
 const stop = (_e, cx) => cx.stop_propagation();
+const WINDOW_1M = /(fable|mythos|opus|sonnet|haiku)-5|opus-4-[678]|sonnet-4-6/;
+
+// Agents Herdr can't see (Windows ConPTY drops OSC 7501; Harry runs over ssh) report through cc.state
+// labels, the same contract agent-columns' patches 0019/0020 read. Harry also puts its usage in hermes.usage.
+function labelled() {
+  const known = new Set(agents().map((a) => a.address));
+  const byAddr = Object.fromEntries(terminals().map((t) => [t.address, t]));
+  return panes().flatMap((p) => {
+    const t = p.terminal && byAddr[p.terminal];
+    const st = t?.labels?.["cc.state"];
+    if (!t || known.has(p.terminal) || t.state !== "live" || !["idle", "working", "blocked", "done"].includes(st)) return [];
+    const sp = spaces().find((x) => x.tabs.some((tb) => tb.id === p.tab));
+    const hermes = t.labels["cc.agent"] === "hermes";
+    return [{ address: p.terminal, pane: p.pane, space: sp?.id, tab: p.tab, tab_name: sp?.tabs.find((tb) => tb.id === p.tab)?.name,
+      title: p.title, focused: p.focused, status: st, app: hermes ? "hermes" : "claude-code", labelled: true,
+      usage: hermes ? t.labels["hermes.usage"] : null }];
+  });
+}
+
+function hermesSession(json) {
+  let u;
+  try { u = JSON.parse(json ?? ""); } catch { return null; }
+  if (!u?.id) return null;
+  const bucket = (b) => ({ in: b.in ?? 0, out: b.out ?? 0, cr: b.cr ?? 0, cw: b.cw ?? 0, usd: b.usd ?? null, estimated: true });
+  return { id: u.id, agent: "hermes", model: u.model, title: u.title, turns: u.calls, tools: u.tools, active: u.active || null,
+    total: bucket(u), turn: bucket(u.turn ?? {}),
+    ctx: { used: u.ctx ?? 0, window: WINDOW_1M.test(u.model ?? "") ? 1_000_000 : 200_000, base: 0, exact: false, growth: 0 } };
+}
+
+const focusAgent = (a) => a.labelled
+  ? (run("space.select", { id: a.space }), run("tab.select", { id: a.tab }), run("pane.focus", { pane: a.pane }))
+  : run("agent.focus", { terminal: a.address });
 
 async function usage(cmd) {
   const r = await exec("python3", ["-I", script(), cmd], { timeout: 60000 });
@@ -230,6 +262,10 @@ export default class AgentUsage extends View {
   match(list) {
     const out = new Map(), taken = new Set();
     for (const a of list) {
+      const h = a.labelled && hermesSession(a.usage);
+      if (h) out.set(a.address, h);
+    }
+    for (const a of list) {
       const info = this.pids.get(a.address);
       if (kindOf(a.app) !== "claude" || !info?.pid) continue;
       const s = this.sessions.find((x) => x.agent === "claude" && x.pid === info.pid);
@@ -253,7 +289,7 @@ export default class AgentUsage extends View {
 
   rows() {
     const space = focused()?.space;
-    const all = agents();
+    const all = [...agents(), ...labelled()];
     const shown = this.scope === "all" ? all : all.filter((a) => a.space === space);
     const parentOf = new Map(terminals().map((t) => [t.address, t.parent ?? null]));
     const addresses = new Set(shown.map((a) => a.address));
@@ -430,7 +466,7 @@ export default class AgentUsage extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(sub ? 11.5 : 12.5).font_semibold().text_color(a.focused ? t.accent : t.foreground).tooltip(s?.title ?? a.title ?? "").child(name))
         .child(div().id(`addr-${a.address}`).flex_none().text_size(10.5).text_color(t.dim).cursor_pointer()
           .hover((st) => st.text_color(t.accent).underline()).tooltip("Focus this agent")
-          .on_click(() => run("agent.focus", { terminal: a.address })).child(a.address))
+          .on_click(() => focusAgent(a)).child(a.address))
         .child(div().id(`cost-${a.address}`).flex_none().text_size(13).font_semibold().tooltip(COST_TIP).child(u ? money(u.usd, u.estimated) : "")))
       .child(h_flex().gap(6).text_size(10.5).text_color(t.dim)
         .child(div().text_color(statusColor).child(STATUS_LABEL[r.status] ?? r.status))
@@ -438,7 +474,7 @@ export default class AgentUsage extends View {
         .when(Boolean(s), (el) => el.child(div().child("·")).child(div().child(`${s.turns} calls · ${s.tools} tools`)))
         .child(div().flex_1())
         .when(Boolean(s?.active), (el) => el.child(div().child(ago(s.active, now)))));
-    if (!s) return card.child(div().text_size(11).text_color(t.dim).child(kindOf(a.app) ? "No session data yet." : "Usage is read for Claude Code and Codex only."));
+    if (!s) return card.child(div().text_size(11).text_color(t.dim).child(kindOf(a.app) || a.labelled ? "No session data yet." : "Usage is read for Claude Code and Codex only."));
     card.child(this.contextBar(s));
     const ctx = s.ctx ?? {};
     const pct = ctx.window ? (ctx.used / ctx.window) * 100 : null;

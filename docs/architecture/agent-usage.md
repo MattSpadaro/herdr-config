@@ -44,6 +44,19 @@ Alerts: the strip posts a notification when a window crosses 80% (`warning`) and
 - **Codex:** rollouts under `~/.codex/sessions/YYYY/MM/DD/` touched in the last 2 days give tokens, context and tool; `token_count.rate_limits` (`primary`, `secondary`) gives the plan limits. No cost (no OpenAI price table). Written from Brutal Metrics' description; not exercised on this machine, which has no Codex.
 - **Cost:** `PRICES` in `usage.py`, USD per million tokens for input, output, cache read, cache write 5 min and 1 h, from the Claude API pricing as of 2026-11-13. Haiku 5.5 requests over 100k prompt tokens use its long rate. An unknown `claude-*` model is priced as its family's current model and shown with `~`. It is the API list-price equivalent, not what a subscription bills.
 
+## Labelled agents
+
+Agents Herdr does not see (`agents()` misses them) are read from terminal labels, the contract of Agent Columns patches 0019/0020: a live terminal with `cc.state` in `idle|working|blocked|done` is a row, and `cc.agent=hermes` marks Harry.
+
+    Hermes gateway (notebook) --plugin hc-agent-state--> %LOCALAPPDATA%\hermes\herdr-hc\cli.txt
+        line 1 "<state> <ms>", line 2 JSON usage of the latest CLI session (state.db `sessions` row)
+    ~/.local/bin/harry (Fedora, in the Harry tab) --hc file read every 1 s--> hc label cc.state, cc.seq, hermes.usage
+
+- `hermes chat` is a client; turns run in the gateway, so the plugin follows CLI sessions (`platform` `cli`/`tui`), not the process. With two Harry tabs both show the latest CLI session.
+- Cost is Hermes' own `actual_cost_usd`, else `estimated_cost_usd`, shown with `~`. Harry uses an API key, so unlike Claude Code it is what is billed. The turn view subtracts the totals read at `pre_llm_call`.
+- Context: `_usage_anchor.prompt_tokens` from `model_config`, window guessed from the model as for Claude.
+- Claude Code on the notebook (labelled, no `hermes.usage`) shows "No session data yet".
+
 ## Connect and disconnect
 
 Both run through the shipped `confirm` dialog, whose command carries a per-copy token (`agent-usage.connect-<token>`) so only the copy that asked acts. `usage.py connect` wraps the existing command as

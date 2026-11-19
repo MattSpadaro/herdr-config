@@ -1,0 +1,55 @@
+--- a/mods/agent-columns/main.js	2026-11-19 00:27:31.504222143 -0300
++++ b/mods/agent-columns/main.js	2026-11-19 00:27:31.505384390 -0300
+@@ -39,6 +39,34 @@
+     if (!node(layout(), "cols-cards")?.size?.px) run("layout.resize", { id: "cols-cards", px: 355 });
+   }
+ };
++// Windows machines: ConPTY drops the OSC 7501 status, so their agents never reach agents().
++// A Claude Code hook there (hc-agent-state.sh) labels its terminal cc.state / cc.seq instead;
++// those terminals become cards here. "done" turns "idle" once you focus it, as Herdr does.
++const CLAUDE = { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: false, tile: null, color: null, shell: false, agent: true };
++const lookedDone = {};
++const labelled = () => {
++  const local = agents();
++  const known = new Set(local.map((a) => a.address));
++  const top = Math.max(0, ...local.map((a) => a.seq)) + 1;
++  const byAddr = Object.fromEntries(terminals().map((t) => [t.address, t]));
++  return panes().flatMap((p) => {
++    const t = p.terminal && byAddr[p.terminal];
++    const st = t?.labels?.["cc.state"];
++    if (!t || known.has(p.terminal) || t.state !== "live" || !["idle", "working", "blocked", "done"].includes(st)) return [];
++    const sp = spaces().find((s) => s.tabs.some((x) => x.id === p.tab));
++    const tab = sp?.tabs.find((x) => x.id === p.tab);
++    if (!tab) return [];
++    const mark = t.labels["cc.seq"];
++    if (st === "done" && p.focused) lookedDone[p.terminal] = mark;
++    const status = st === "done" && lookedDone[p.terminal] === mark ? "idle" : st;
++    return [{ address: p.terminal, pane: p.pane, space: sp.id, space_name: sp.name, tab: tab.id, tab_index: tab.index,
++      tab_name: tab.name, status, app: "claude-code", program: CLAUDE, title: p.title, seq: top, pinned: false, focused: p.focused, labelled: true }];
++  });
++};
++const allAgents = () => [...agents(), ...labelled()];
++const focusAgent = (a) => a.labelled
++  ? (run("space.select", { id: a.space }), run("tab.select", { id: a.tab }), run("pane.focus", { pane: a.pane }))
++  : run("agent.focus", { terminal: a.address });
+ const matches = (a) => {
+   const q = (shared("agent-columns.filter") ?? "").trim().toLowerCase();
+   return !q || [a.tab_name, a.title, a.address, a.program?.name, a.space_name].some((v) => v?.toLowerCase().includes(q));
+@@ -135,7 +163,7 @@
+       })
+       .bg(hollow ? clear : unseen ? state.color + "1a" : C.white).border(1).border_l(0).border_color(hollow ? clear : ring).cursor_pointer()
+       .hover(s => s.border_color(state.color))
+-      .on_click(() => { run("agent.focus", { terminal: a.address }); if (view() === "board") setView("split"); })
++      .on_click(() => { focusAgent(a); if (view() === "board") setView("split"); })
+       .child(div().id(`${ghost ? "ghost-" : ""}bar-${a.address}-v${ghost ? ghost.ver : memo.cardVer[a.address] ?? 0}`).w(BAR).h(barH).bg(state.color).flex_none()
+         .transition("height", { duration: 450, easing: "ease-out" }))
+       .child(v_flex().when(fxW === null, (el) => el.flex_1()).when(fxW !== null, (el) => el.w(W - BAR).flex_none()).min_w(0).px(12).py(10).gap(7)
+@@ -188,7 +216,7 @@
+   }
+   render() {
+     const role = props()?.role;
+-    const list = agents().filter(matches);
++    const list = allAgents().filter(matches);
+     const active = spaces().find(s => s.active);
+     if (role === "header") return v_flex().size_full().bg(C.white).pr(26).justify_center().gap(12)
+         .pl(node(layout(), "sidebar")?.hidden && window()?.platform === "macos" ? 84 : 26)
