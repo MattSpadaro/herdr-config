@@ -1,0 +1,50 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -59,11 +59,21 @@
+     this.search.on("change", (_e, cx) => { setShared("agent-columns.filter", this.search.value()); cx.notify(); });
+     cx.timer.every(30000, (cx) => cx.notify());
+   }
+-  // Pane header traffic light: a colored dot that brightens on hover and runs a pane command.
+-  light(id, color, tip, onClick) {
+-    // 6 px dot like the status dot, inside a 14 px hit area so it stays easy to click.
+-    return div().id(id).size(14).flex_none().flex().items_center().justify_center().cursor_pointer()
+-      .tooltip(tip).on_click(onClick).child(div().size(6).rounded(6).bg(color));
++  // Pane header traffic light: an 8 px dot with a halo on hover. A click springs it
++  // up (with overshoot) and runs the command once the pop has shown.
++  light(id, color, tip, onClick, glyph) {
++    const size = this.pop === id ? 13 : 8;
++    const spring = { response: 220, damping: 0.45 };
++    return div().id(id).size(18).flex_none().flex().items_center().justify_center().rounded(18).cursor_pointer()
++      .hover((s) => s.bg(color + "33")).tooltip(tip)
++      .on_click((_e, cx) => {
++        if (this.pop) return;
++        this.pop = id; cx.notify();
++        cx.timer.after(160, (cx) => { this.pop = null; onClick(); cx.notify(); });
++      })
++      .child(div().w(size).h(size).spring("width", spring).spring("height", spring).rounded(13).bg(color)
++        .flex().items_center().justify_center()
++        .when(Boolean(glyph), (el) => el.child(div().text_size(7).font_weight(900).text_color("#000000").child(glyph))));
+   }
+   card(a, state, grouped = false) {
+     const old = this.observed[a.address];
+@@ -155,13 +165,15 @@
+     }
+     if (role === "pane") {
+       const p = panes().find(p => p.pane === props().pane);
++      const state = p ? STATES.find(s => s.key === eff(p)) : null;
+       return h_flex().size_full().px(13).items_center().gap(7).bg(theme().raised).border_b(1).border_color(C.line)
+         .child(icon(p?.program, 14)).child(div().text_size(11).text_color(C.ink).child(p?.program?.name ?? "Terminal"))
++        // Status dot next to the name, only when the pane has a known agent state.
++        .when(Boolean(state), (el) => el.child(dot(state.color, 6)))
+         .child(div().flex_1())
+-        // Status dot only when the pane has an agent state; the grey "no state" dot is dropped.
+-        .when(Boolean(p && STATES.some(s => s.key === eff(p))), (el) => el.child(dot(STATES.find(s => s.key === eff(p)).color, 6)))
+-        .child(this.light("pane-zoom", "#f5c518", p?.zoomed ? "Restore" : "Full screen", () => run("pane.zoom", { pane: props().pane })))
+-        .child(this.light("pane-close", "#ef4444", "Close", () => run("pane.close", { pane: props().pane })));
++        .child(h_flex().gap(2).items_center()
++          .child(this.light("pane-zoom", "#f5c518", p?.zoomed ? "Restore" : "Full screen", () => run("pane.zoom", { pane: props().pane })))
++          .child(this.light("pane-close", "#ef4444", "Close", () => run("pane.close", { pane: props().pane }), "✕")));
+     }
+     const archive = STATES.find((s) => s.key === "archived");
+     const shown = STATES.filter((s) => s === archive ? showArchived() : s.key !== "error" || list.some((a) => inCol(a, s)));
