@@ -26,7 +26,7 @@ They are rewritten on `SessionStart` (startup, resume, clear, compact) and on ev
 Not installed by `herdrcfg.py`; it belongs to each machine's Claude Code settings.
 
 - Fedora: `~/.claude/hooks/hc-session-label.sh`, hooks `sh ~/.claude/hooks/hc-session-label.sh` on `SessionStart` and `UserPromptSubmit` in `~/.claude/settings.json`.
-- Notebook (Windows): `C:/Users/mathe/.claude/hooks/hc-session-label.sh`, run by Git Bash with the hc binary as its argument: `"C:/Program Files/Git/bin/bash.exe" C:/Users/mathe/.claude/hooks/hc-session-label.sh /c/Users/mathe/AppData/Local/Programs/herdr-core/hc.exe` (async), beside `hc-agent-state.sh`.
+- Notebook (Windows): `%USERPROFILE%/.claude/hooks/hc-session-label.sh`, run by Git Bash with the hc binary as its argument: `"C:/Program Files/Git/bin/bash.exe" <USERPROFILE>/.claude/hooks/hc-session-label.sh <USERPROFILE as /c/Users/...>/AppData/Local/Programs/herdr-core/hc.exe` (async), beside `hc-agent-state.sh`.
 
 ## Readers
 
