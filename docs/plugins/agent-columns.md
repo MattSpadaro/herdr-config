@@ -29,6 +29,7 @@ Only the mods `agent-columns` (board, header and pane header by `props.role`), `
 5. `0005-pane-header-buttons.patch`: the pane header (`role: "pane"`) ends with two traffic lights: yellow runs `pane.zoom` (full screen, click again to restore) and red runs `pane.close` (ends the terminal). `config/keys.json` also binds `ctrl-t` to `pane.split:right` in this layout.
 6. `0006-smaller-pane-lights.patch`: the traffic lights are 6 px dots (the status dot's size) in 14 px hit areas, and the status dot is drawn only when the pane has a known agent state (no grey dot).
 7. `0007-animated-pane-lights.patch`: the lights are 8 px with a hover halo; a click springs the dot to 13 px (overshoot) and runs the command 160 ms later. The close light carries a black ✕, and the status dot moves next to the program name.
+8. `0008-unseen-tint-apple-press.patch`: a card you have not seen (Herdr status `done`, or its column changed since it was last focused) gets its column color as a faint background (`1a`) and border (`66`). The pane lights squeeze to 6 px on press, spring to 14 px on release (response 380 ms, damping 0.55) and run their command 300 ms after the click.
 
 The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
 

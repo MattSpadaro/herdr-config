@@ -1,0 +1,47 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -59,19 +59,21 @@
+     this.search.on("change", (_e, cx) => { setShared("agent-columns.filter", this.search.value()); cx.notify(); });
+     cx.timer.every(30000, (cx) => cx.notify());
+   }
+-  // Pane header traffic light: an 8 px dot with a halo on hover. A click springs it
+-  // up (with overshoot) and runs the command once the pop has shown.
++  // Pane header traffic light: an 8 px dot with a hover halo. Press squeezes it, release
++  // springs it up past its size and back (Apple-style), and the command runs as it settles.
+   light(id, color, tip, onClick, glyph) {
+-    const size = this.pop === id ? 13 : 8;
+-    const spring = { response: 220, damping: 0.45 };
++    const size = this.pop === id ? 14 : this.press === id ? 6 : 8;
++    const spring = { response: 380, damping: 0.55 };
+     return div().id(id).size(18).flex_none().flex().items_center().justify_center().rounded(18).cursor_pointer()
+       .hover((s) => s.bg(color + "33")).tooltip(tip)
++      .on_mouse_down("left", (_e, cx) => { if (!this.pop) { this.press = id; cx.notify(); } })
+       .on_click((_e, cx) => {
+         if (this.pop) return;
+-        this.pop = id; cx.notify();
+-        cx.timer.after(160, (cx) => { this.pop = null; onClick(); cx.notify(); });
++        this.press = null; this.pop = id; cx.notify();
++        cx.timer.after(170, (cx) => { this.pop = null; cx.notify(); });
++        cx.timer.after(300, () => onClick());
+       })
+-      .child(div().w(size).h(size).spring("width", spring).spring("height", spring).rounded(13).bg(color)
++      .child(div().w(size).h(size).spring("width", spring).spring("height", spring).rounded(14).bg(color)
+         .flex().items_center().justify_center()
+         .when(Boolean(glyph), (el) => el.child(div().text_size(7).font_weight(900).text_color("#000000").child(glyph))));
+   }
+@@ -84,8 +86,13 @@
+     const kids = all.filter((x) => x.parent === a.address && x.state === "live").length;
+     const mins = Math.floor((Date.now() - this.observed[a.address].at) / 60000);
+     const elapsed = mins ? `${mins}m observed` : "<1m observed";
++    // Unseen: Herdr's "done" (finished while you weren't looking), or the card changed
++    // column since you last had it focused. Unseen cards take a faint wash of their column color.
++    this.lastSeen ??= {};
++    if (a.focused || this.lastSeen[a.address] === undefined) this.lastSeen[a.address] = eff(a);
++    const unseen = !a.focused && (a.status === "done" || this.lastSeen[a.address] !== eff(a));
+     return h_flex().id(`agent-${a.address}`).w_full().h(86).flex_none().rounded(7).overflow_hidden()
+-      .bg(C.white).border(1).border_color(C.line).cursor_pointer().hover(s => s.border_color(state.color))
++      .bg(unseen ? state.color + "1a" : C.white).border(1).border_color(unseen ? state.color + "66" : C.line).cursor_pointer().hover(s => s.border_color(state.color))
+       .on_click(() => { run("agent.focus", { terminal: a.address }); if (view() === "board") setView("split"); })
+       .child(div().w(3).h_full().bg(state.color).flex_none())
+       .child(v_flex().flex_1().min_w(0).px(12).py(10).gap(7)
