@@ -1,0 +1,27 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -61,8 +61,9 @@
+   }
+   // Pane header traffic light: a colored dot that brightens on hover and runs a pane command.
+   light(id, color, tip, onClick) {
+-    return div().id(id).size(12).rounded(12).flex_none().bg(color + "cc").cursor_pointer()
+-      .hover((s) => s.bg(color)).tooltip(tip).on_click(onClick);
++    // 6 px dot like the status dot, inside a 14 px hit area so it stays easy to click.
++    return div().id(id).size(14).flex_none().flex().items_center().justify_center().cursor_pointer()
++      .tooltip(tip).on_click(onClick).child(div().size(6).rounded(6).bg(color));
+   }
+   card(a, state, grouped = false) {
+     const old = this.observed[a.address];
+@@ -156,8 +157,9 @@
+       const p = panes().find(p => p.pane === props().pane);
+       return h_flex().size_full().px(13).items_center().gap(7).bg(theme().raised).border_b(1).border_color(C.line)
+         .child(icon(p?.program, 14)).child(div().text_size(11).text_color(C.ink).child(p?.program?.name ?? "Terminal"))
+-        .child(div().flex_1()).child(dot(STATES.find(s => s.key === (p ? eff(p) : null))?.color ?? C.muted, 6))
+-        .child(div().w(4))
++        .child(div().flex_1())
++        // Status dot only when the pane has an agent state; the grey "no state" dot is dropped.
++        .when(Boolean(p && STATES.some(s => s.key === eff(p))), (el) => el.child(dot(STATES.find(s => s.key === eff(p)).color, 6)))
+         .child(this.light("pane-zoom", "#f5c518", p?.zoomed ? "Restore" : "Full screen", () => run("pane.zoom", { pane: props().pane })))
+         .child(this.light("pane-close", "#ef4444", "Close", () => run("pane.close", { pane: props().pane })));
+     }
