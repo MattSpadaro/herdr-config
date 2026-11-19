@@ -1,0 +1,11 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -384,7 +384,6 @@
+       .on_click((_e, cx) => { closeOverlay(props().overlay); act(cx); });
+     return v_flex().size_full().bg(t.popover ?? t.surface)
+       .child(v_flex().id("menu-summary").h(86).flex_none().px(12).pt(9).pb(8).gap(4).border_b(1).border_color(C.line)
+-        .when(Boolean(s?.full), (el) => el.tooltip(s.full))
+         .child(h_flex().gap(6).items_center().text_size(10).text_color(t.dim)
+           .child(div().flex_1().min_w(0).truncate().font_semibold().text_color(t.muted).child(nameOf(a)))
+           .child(div().flex_none().child(head)))
