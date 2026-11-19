@@ -37,6 +37,7 @@ Only the mods `agent-columns` (board, header and pane header by `props.role`), `
 13. `0013-column-change-fold-and-draw.patch`: when an agent goes from Done to Working or Needs you, a ghost of its card stays in Done and folds right-to-left into its color bar (380 ms ease-in); then in the new column the bar draws downward (320 ms) and the card slides out of it to the right (380 ms). Column widths come from `on_size_change`. The hover nudge returns more slowly (response 340 ms, held 130 ms).
 14. `0014-slower-column-change.patch`: the column-change effect takes about 1.6 s: fold 520 ms, bar 450 ms, slide out 520 ms.
 15. `0015-column-change-everywhere.patch`: the fold-and-draw effect runs for every column change, from any column to any other; the ghost stays in the column the agent left.
+16. `0016-stable-card-id-after-effect.patch`: the entering card gets a fresh element id once, when the effect starts, and keeps it afterwards, so the end of the effect no longer rebuilds the card (visible hitch). Ghost ids are prefixed `ghost-` so they never share an id with the entering card.
 
 The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
 

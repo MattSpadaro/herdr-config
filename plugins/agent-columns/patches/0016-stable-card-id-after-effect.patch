@@ -1,0 +1,40 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -45,7 +45,7 @@
+ };
+ // Per-agent memory shared by every copy of this mod: last state seen, when it entered its
+ // column, its slot in the column, and a pending slide offset for the move-up animation.
+-const memo = { seen: {}, entered: {}, slot: {}, slide: {}, ver: {}, fx: {}, ghosts: {}, colW: {}, fxv: 0 };
++const memo = { seen: {}, entered: {}, slot: {}, slide: {}, ver: {}, fx: {}, ghosts: {}, colW: {}, fxv: 0, cardVer: {} };
+ const CARD_STEP = 95; // card height 86 + column gap 9
+ const dot = (color, size = 7) => div().size(size).rounded(size).bg(color).flex_none();
+ const icon = (program, size = 18) => program?.icon
+@@ -115,7 +115,7 @@
+     return div().id(`slot-${ghost ? "ghost-" : ""}${a.address}-${memo.ver[a.address] ?? 0}`).w_full().flex_none()
+       .relative().top(memo.slide[a.address] ?? 0).transition("top", { duration: 650, easing: "ease-out" })
+       .on_size_change((sz) => { if (sz.width > 0) memo.colW[state.key] = sz.width; })
+-      .child(h_flex().id(`agent-${a.address}${fx ? `-fx${fx.ver}` : ""}`).h(86).rounded_r(7).overflow_hidden()
++      .child(h_flex().id(`${ghost ? "ghost-" : ""}agent-${a.address}-v${ghost ? ghost.ver : memo.cardVer[a.address] ?? 0}`).h(86).rounded_r(7).overflow_hidden()
+       .when(fxW === null, (el) => el.w_full())
+       .when(fxW !== null, (el) => el.w(fxW).flex_none().items_start()
+         .transition("width", { duration: 520, easing: fx.kind === "exit" ? "ease-in" : "ease-out" }))
+@@ -130,7 +130,7 @@
+       .bg(hollow ? clear : unseen ? state.color + "1a" : C.white).border(1).border_l(0).border_color(hollow ? clear : ring).cursor_pointer()
+       .hover(s => s.border_color(state.color))
+       .on_click(() => { run("agent.focus", { terminal: a.address }); if (view() === "board") setView("split"); })
+-      .child(div().id(`bar-${a.address}${fx ? `-fx${fx.ver}` : ""}`).w(BAR).h(barH).bg(state.color).flex_none()
++      .child(div().id(`${ghost ? "ghost-" : ""}bar-${a.address}-v${ghost ? ghost.ver : memo.cardVer[a.address] ?? 0}`).w(BAR).h(barH).bg(state.color).flex_none()
+         .transition("height", { duration: 450, easing: "ease-out" }))
+       .child(v_flex().when(fxW === null, (el) => el.flex_1()).when(fxW !== null, (el) => el.w(W - BAR).flex_none()).min_w(0).px(12).py(10).gap(7)
+         .child(h_flex().gap(7).items_center().text_size(10).text_color(C.muted)
+@@ -233,6 +233,9 @@
+       const g = { kind: "exit", phase: "start", ver, a: { ...a }, k: prev.k, col: prev.col };
+       const e = { kind: "enter", phase: "start", ver };
+       memo.ghosts[a.address] = g; memo.fx[a.address] = e;
++      // The entering card gets a fresh element once, here, and keeps that id after the
++      // effect ends, so finishing it does not rebuild the card (that was the end hitch).
++      memo.cardVer[a.address] = ver;
+       const t = this.acx.timer;
+       t.after(30, (cx) => { g.phase = "shrink"; cx.notify(); });
+       t.after(580, (cx) => { delete memo.ghosts[a.address]; e.phase = "bar"; cx.notify(); });
