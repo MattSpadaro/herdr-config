@@ -1,0 +1,128 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -45,7 +45,7 @@
+ };
+ // Per-agent memory shared by every copy of this mod: last state seen, when it entered its
+ // column, its slot in the column, and a pending slide offset for the move-up animation.
+-const memo = { seen: {}, entered: {}, slot: {}, slide: {}, ver: {} };
++const memo = { seen: {}, entered: {}, slot: {}, slide: {}, ver: {}, fx: {}, ghosts: {}, colW: {}, fxv: 0 };
+ const CARD_STEP = 95; // card height 86 + column gap 9
+ const dot = (color, size = 7) => div().size(size).rounded(size).bg(color).flex_none();
+ const icon = (program, size = 18) => program?.icon
+@@ -82,40 +82,57 @@
+         .flex().items_center().justify_center()
+         .when(Boolean(glyph), (el) => el.child(div().text_size(7).font_weight(900).text_color("#000000").child(glyph))));
+   }
+-  card(a, state, grouped = false) {
++  card(a, state, grouped = false, ghost = null) {
+     const old = this.observed[a.address];
+-    if (!old || old.status !== eff(a)) this.observed[a.address] = { status: eff(a), at: Date.now() };
++    if (!ghost && (!old || old.status !== eff(a))) this.observed[a.address] = { status: eff(a), at: Date.now() };
+     const all = terminals();
+     const me = all.find((x) => x.address === a.address);
+     const parent = me?.parent && agents().find((x) => x.address === me.parent);
+     const kids = all.filter((x) => x.parent === a.address && x.state === "live").length;
+-    const mins = Math.floor((Date.now() - this.observed[a.address].at) / 60000);
++    const mins = Math.floor((Date.now() - (this.observed[a.address]?.at ?? Date.now())) / 60000);
+     const elapsed = mins ? `${mins}m observed` : "<1m observed";
+     // Unseen: Herdr's "done" (finished while you weren't looking), or the card changed
+     // column since you last had it focused. Unseen cards take a faint wash of their column color.
+-    if (a.focused || memo.seen[a.address] === undefined) memo.seen[a.address] = eff(a);
+-    const unseen = !a.focused && (a.status === "done" || memo.seen[a.address] !== eff(a));
++    if (!ghost && (a.focused || memo.seen[a.address] === undefined)) memo.seen[a.address] = eff(a);
++    const unseen = !ghost && !a.focused && (a.status === "done" || memo.seen[a.address] !== eff(a));
++    // Column-change effect (Done -> Working/Needs you). Exit (ghost left in Done): the card
++    // folds right-to-left into its color bar. Enter: the bar draws down, then the card
++    // slides out of it to the right. Widths are px while animating, from the column's size.
++    const fx = ghost ?? memo.fx[a.address];
++    const W = memo.colW[state.key] ?? Object.values(memo.colW)[0] ?? 340;
++    const BAR = 5;
++    const fxW = !fx ? null
++      : fx.kind === "exit" ? (fx.phase === "start" ? W : BAR)
++      : (fx.phase === "grow" ? W : BAR);
++    const barH = fx?.kind === "enter" && fx.phase === "start" ? 0 : 86;
++    const hollow = fx?.kind === "enter" && fx.phase !== "grow";
++    const clear = "#00000000";
+     // The selected (focused) agent keeps the hover ring in its column color.
+     const ring = a.focused ? state.color : unseen ? state.color + "66" : C.line;
+     // Outer slot: carries the slide to a new place in the column (fresh id per move).
+     // Inner card: lifts 2 px on hover with a spring. Left edge is square (the color bar),
+     // right corners rounded; the bar replaces the left border.
+-    return div().id(`slot-${a.address}-${memo.ver[a.address] ?? 0}`).w_full().flex_none()
++    return div().id(`slot-${ghost ? "ghost-" : ""}${a.address}-${memo.ver[a.address] ?? 0}`).w_full().flex_none()
+       .relative().top(memo.slide[a.address] ?? 0).transition("top", { duration: 650, easing: "ease-out" })
+-      .child(h_flex().id(`agent-${a.address}`).w_full().h(86).rounded_r(7).overflow_hidden()
++      .on_size_change((sz) => { if (sz.width > 0) memo.colW[state.key] = sz.width; })
++      .child(h_flex().id(`agent-${a.address}${fx ? `-fx${fx.ver}` : ""}`).h(86).rounded_r(7).overflow_hidden()
++      .when(fxW === null, (el) => el.w_full())
++      .when(fxW !== null, (el) => el.w(fxW).flex_none().items_start()
++        .transition("width", { duration: 380, easing: fx.kind === "exit" ? "ease-in" : "ease-out" }))
+       // Hover nudge: on pointer entry the card eases up 1 px and springs straight back,
+       // a brief reaction rather than a lifted state.
+-      .relative().top(this.nudge === a.address ? -1 : 0).spring("top", { response: 260, damping: 0.75 })
++      .relative().top(this.nudge === a.address ? -1 : 0).spring("top", { response: 340, damping: 0.75 })
+       .on_hover((over, cx) => {
+         if (!over || this.nudge) return;
+         this.nudge = a.address; cx.notify();
+-        cx.timer.after(110, (cx) => { this.nudge = null; cx.notify(); });
++        cx.timer.after(130, (cx) => { this.nudge = null; cx.notify(); });
+       })
+-      .bg(unseen ? state.color + "1a" : C.white).border(1).border_l(0).border_color(ring).cursor_pointer()
++      .bg(hollow ? clear : unseen ? state.color + "1a" : C.white).border(1).border_l(0).border_color(hollow ? clear : ring).cursor_pointer()
+       .hover(s => s.border_color(state.color))
+       .on_click(() => { run("agent.focus", { terminal: a.address }); if (view() === "board") setView("split"); })
+-      .child(div().w(5).h_full().bg(state.color).flex_none())
+-      .child(v_flex().flex_1().min_w(0).px(12).py(10).gap(7)
++      .child(div().id(`bar-${a.address}${fx ? `-fx${fx.ver}` : ""}`).w(BAR).h(barH).bg(state.color).flex_none()
++        .transition("height", { duration: 320, easing: "ease-out" }))
++      .child(v_flex().when(fxW === null, (el) => el.flex_1()).when(fxW !== null, (el) => el.w(W - BAR).flex_none()).min_w(0).px(12).py(10).gap(7)
+         .child(h_flex().gap(7).items_center().text_size(10).text_color(C.muted)
+           .child(icon(a.program, 15)).child(div().truncate().child(a.program.name)).child(div().flex_1())
+           .when(Boolean(me?.parent) && !grouped, (el) => el.child(div().max_w(120).truncate().px(5).rounded(4).bg(theme().selected).text_color(C.violet)
+@@ -207,6 +224,21 @@
+     // Newest arrival on top: remember the seq at which each agent entered its current column.
+     for (const a of list) if (memo.entered[a.address]?.status !== eff(a)) memo.entered[a.address] = { status: eff(a), seq: a.seq };
+     const recent = (x, y) => memo.entered[y.address].seq - memo.entered[x.address].seq;
++    // Done -> Working / Needs you: leave a folding ghost in Done, then draw the card in.
++    for (const a of list) {
++      const prev = memo.slot[a.address];
++      const cur = STATES.find((s) => inCol(a, s))?.key;
++      if (prev?.col !== "done" || (cur !== "working" && cur !== "blocked") || memo.fx[a.address]) continue;
++      const ver = ++memo.fxv;
++      const g = { kind: "exit", phase: "start", ver, a: { ...a }, k: prev.k };
++      const e = { kind: "enter", phase: "start", ver };
++      memo.ghosts[a.address] = g; memo.fx[a.address] = e;
++      const t = this.acx.timer;
++      t.after(30, (cx) => { g.phase = "shrink"; cx.notify(); });
++      t.after(420, (cx) => { delete memo.ghosts[a.address]; e.phase = "bar"; cx.notify(); });
++      t.after(760, (cx) => { e.phase = "grow"; cx.notify(); });
++      t.after(1160, (cx) => { delete memo.fx[a.address]; cx.notify(); });
++    }
+     setAgentOrder(shown.flatMap(s => list.filter(a => inCol(a, s)).sort(recent).map(a => a.address)));
+     const archivedCount = list.filter(archived).length;
+     // The archive toggle lives in the header of the board's last column.
+@@ -222,6 +254,9 @@
+       // the top transition carry it to 0 on the next frame.
+       cards.forEach((a, k) => {
+         const old = memo.slot[a.address];
++        // A ghost still standing in this column keeps its slot.
++        const held = Object.values(memo.ghosts).filter((g) => state.key === "done" && g.k <= k).length;
++        k += held;
+         if (old && old.col === state.key && old.k !== k) {
+           memo.slide[a.address] = (old.k - k) * CARD_STEP;
+           memo.ver[a.address] = (memo.ver[a.address] ?? 0) + 1;
+@@ -234,7 +269,12 @@
+           .child(dot(state.color, 8)).child(div().text_size(13).font_semibold().text_color(C.ink).child(state.label))
+           .child(div().px(6).py(2).rounded(4).bg(state.wash).text_size(10).text_color(state.color).child(String(cards.length)))
+           .when(i === shown.length - 1, (el) => el.child(div().flex_1()).child(toggle())))
+-        .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(9).children(this.groups(cards, state)));
++        .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(9).children((() => {
++          const els = this.groups(cards, state);
++          if (state.key === "done") for (const g of Object.values(memo.ghosts).sort((x, y) => x.k - y.k))
++            els.splice(Math.min(g.k, els.length), 0, this.card(g.a, state, false, g));
++          return els;
++        })()));
+     }));
+     // Next frame: drop the offsets so the cards glide to their new slots.
+     if (this.sliding) this.acx.timer.after(30, (cx) => { memo.slide = {}; cx.notify(); });
