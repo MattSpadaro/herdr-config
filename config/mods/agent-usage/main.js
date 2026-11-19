@@ -457,7 +457,8 @@ export default class AgentUsage extends View {
     const a = r.agent;
     const u = s ? (this.view === "turn" ? s.turn : s.total) : null;
     const statusColor = t[r.status === "waiting" ? "accent" : r.status] ?? t.unknown;
-    const name = a.tab_name && !/^\d+$/.test(a.tab_name) ? a.tab_name : s?.title ?? a.title ?? a.address;
+    // The session's own title (Claude /rename or auto, Hermes), so two agents in one tab stay apart.
+    const name = s?.title || (!a.labelled && a.title) || a.tab_name || a.address;
     const sub = r.depth > 0;
     const card = v_flex().id(`card-${a.address}`).ml(r.depth * 14).p(10).gap(6).rounded(8).bg(t.surface).border(1)
       .border_color(a.focused ? t.accent : r.status === "blocked" ? t.blocked : t.border)

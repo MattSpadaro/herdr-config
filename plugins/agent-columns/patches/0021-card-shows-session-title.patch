@@ -1,0 +1,12 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -179,7 +179,7 @@
+           .when(kids > 0, (el) => el.child(div().flex_none().px(5).rounded(4).bg(theme().selected).text_color(C.violet)
+             .child(`${kids} sub-agent${kids > 1 ? "s" : ""}`))).child(div().child(a.address)))
+         .child(h_flex().items_center().gap(6)
+-          .child(div().flex_1().min_w(0).text_size(13).font_semibold().text_color(C.ink).truncate().child(/^\d+$/.test(a.tab_name) && a.title ? a.title : a.tab_name))
++          .child(div().flex_1().min_w(0).text_size(13).font_semibold().text_color(C.ink).truncate().child((!a.labelled || /^\d+$/.test(a.tab_name)) && a.title ? a.title : a.tab_name))
+           .child(archived(a)
+             ? div().id(`restore-${a.address}`).flex_none().px(5).rounded(4).text_size(10).text_color(C.muted).cursor_pointer()
+                 .hover((s) => s.bg(theme().hover).text_color(C.ink)).child("Restore")

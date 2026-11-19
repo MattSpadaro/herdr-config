@@ -42,6 +42,7 @@ Only the mods `agent-columns` (board, header and pane header by `props.role`), `
 18. `0018-zoom-aware-card-width.patch`: the measured column width is divided by the app zoom before it is used with `w()`, which the zoom scales; at zoom 1.1 the arriving card grew 10% too wide and snapped back.
 19. `0019-windows-labelled-agents.patch`: terminals Herdr does not see as agents (Windows ConPTY drops OSC 7501) become cards when their terminal carries `cc.state` (`idle`, `working`, `blocked`, `done`) and `cc.seq` labels, set by a Claude Code hook on the notebook (`hc-agent-state.sh`). `done` turns `idle` once the pane is focused; clicking focuses the pane.
 20. `0020-labelled-hermes-agent.patch`: a labelled terminal with `cc.agent=hermes` is drawn as Hermes (icon `icons/hermes.svg`) instead of Claude Code. `~/.local/bin/harry` sets it for Harry, Hermes on the notebook run over ssh; see [Agent usage](/architecture/agent-usage.md#labelled-agents).
+21. `0021-card-shows-session-title.patch`: a card shows its terminal's title (Claude Code writes the session title there: `/rename` or the automatic one) instead of the tab name, so two agents in one tab read apart. Labelled agents keep the tab name, since their pane title is the Windows console's.
 
 The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
 
