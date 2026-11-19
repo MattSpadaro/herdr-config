@@ -1,0 +1,16 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -33,7 +33,11 @@
+   if (v === "terminal") { run("layout.show", { id: "workspace" }); run("layout.hide", { id: "cols-cards" }); return; }
+   run("layout.show", { id: "cols-cards" });
+   if (v === "board") { run("layout.hide", { id: "workspace" }); run("layout.resize", { id: "cols-cards", weight: 1 }); }
+-  else { run("layout.show", { id: "workspace" }); run("layout.resize", { id: "cols-cards", px: 355 }); }
++  else {
++    run("layout.show", { id: "workspace" });
++    // Keep a board height the user dragged; only reset after Board mode (weight) or when unset.
++    if (!node(layout(), "cols-cards")?.size?.px) run("layout.resize", { id: "cols-cards", px: 355 });
++  }
+ };
+ const matches = (a) => {
+   const q = (shared("agent-columns.filter") ?? "").trim().toLowerCase();

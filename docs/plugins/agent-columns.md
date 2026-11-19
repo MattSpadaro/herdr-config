@@ -25,6 +25,7 @@ Only the mods `agent-columns` (board, header and pane header by `props.role`), `
 1. `0001-spaces-asks-count.patch`: `agent-columns-spaces` shows a pill with the count of pending asks per space, read from `shared("asks.state")` under the [asks.state contract](/architecture/asks-state-contract.md): every `pending` ask counts, `UNCLEAR` included, the same as the tab bar badge.
 2. `0002-new-space-overlay.patch`: with `props.newSpace = {mod, width?, height?, props?}`, the `+` beside "Spaces" opens that mod as a popup instead of running `space.new`. The base layout points it at the [folder picker](/architecture/folder-picker.md).
 3. `0003-usage-button-prop.patch`: the sidebar footer's Usage button comes from `props.usage = {icon, label?, run: [{name, args?}]}` and runs those commands in order; without the prop there is no button. Upstream opened `agent-columns-usage`. The base layout points it at the `agent-usage` panel.
+4. `0004-keep-split-board-height.patch`: choosing Split keeps a board height the user dragged; it resets `cols-cards` to 355 px only when coming from Board (weight size) or when no px size is set. The base layout makes `board-area` resizable so the board/terminal boundary can be dragged.
 
 The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
 

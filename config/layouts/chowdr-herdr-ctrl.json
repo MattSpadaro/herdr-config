@@ -180,7 +180,7 @@
               "id": "board-area",
               "type": "column",
               "gap": 0,
-              "resizable": false,
+              "resizable": true,
               "children": [
                 {
                   "id": "cols-cards",
