@@ -1,0 +1,22 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -1,6 +1,6 @@
+ import { View, div, svg, image } from "gpui-kit";
+ import { h_flex, v_flex, InputState, Input } from "gpui-base";
+-import { theme, window, terminals, agents, spaces, panes, props, run, setAgentOrder, layout, shared, setShared } from "herdr";
++import { theme, window, terminals, agents, spaces, panes, props, run, setAgentOrder, layout, shared, setShared, settings } from "herdr";
+ 
+ const C = {
+   get ink() { return theme().foreground; }, get muted() { return theme().muted; },
+@@ -118,7 +118,9 @@
+     return div().id(`slot-${ghost ? "ghost-" : ""}${a.address}-${memo.ver[a.address] ?? 0}-${ghost ? ghost.ver : memo.cardVer[a.address] ?? 0}`)
+       .w_full().flex_none().h(slotH).transition("height", { duration: 450, easing: "ease-out" })
+       .relative().top(memo.slide[a.address] ?? 0).transition("top", { duration: 650, easing: "ease-out" })
+-      .on_size_change((sz) => { if (sz.width > 0) memo.colW[state.key] = sz.width; })
++      // Measured in logical px, but w(n) is scaled by the app zoom: store it in w() units,
++      // or the arriving card overshoots by the zoom factor and snaps back at the end.
++      .on_size_change((sz) => { if (sz.width > 0) memo.colW[state.key] = sz.width / (Number(settings().zoom) || 1); })
+       .child(h_flex().id(`${ghost ? "ghost-" : ""}agent-${a.address}-v${ghost ? ghost.ver : memo.cardVer[a.address] ?? 0}`).h(86).rounded_r(7).overflow_hidden()
+       .when(fxW === null, (el) => el.w_full())
+       .when(fxW !== null, (el) => el.w(fxW).flex_none().items_start()
