@@ -36,6 +36,7 @@ Only the mods `agent-columns` (board, header and pane header by `props.role`), `
 12. `0012-subtle-hover-nudge-wider-bar.patch`: hover no longer holds the card up; on pointer entry it springs up 1 px for 110 ms and back (response 260 ms, damping 0.75). The color bar is 5 px.
 13. `0013-column-change-fold-and-draw.patch`: when an agent goes from Done to Working or Needs you, a ghost of its card stays in Done and folds right-to-left into its color bar (380 ms ease-in); then in the new column the bar draws downward (320 ms) and the card slides out of it to the right (380 ms). Column widths come from `on_size_change`. The hover nudge returns more slowly (response 340 ms, held 130 ms).
 14. `0014-slower-column-change.patch`: the column-change effect takes about 1.6 s: fold 520 ms, bar 450 ms, slide out 520 ms.
+15. `0015-column-change-everywhere.patch`: the fold-and-draw effect runs for every column change, from any column to any other; the ghost stays in the column the agent left.
 
 The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
 

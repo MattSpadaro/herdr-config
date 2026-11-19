@@ -1,0 +1,47 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -95,7 +95,7 @@
+     // column since you last had it focused. Unseen cards take a faint wash of their column color.
+     if (!ghost && (a.focused || memo.seen[a.address] === undefined)) memo.seen[a.address] = eff(a);
+     const unseen = !ghost && !a.focused && (a.status === "done" || memo.seen[a.address] !== eff(a));
+-    // Column-change effect (Done -> Working/Needs you). Exit (ghost left in Done): the card
++    // Column-change effect (any column to any other). Exit (ghost left in the old column): the card
+     // folds right-to-left into its color bar. Enter: the bar draws down, then the card
+     // slides out of it to the right. Widths are px while animating, from the column's size.
+     const fx = ghost ?? memo.fx[a.address];
+@@ -224,13 +224,13 @@
+     // Newest arrival on top: remember the seq at which each agent entered its current column.
+     for (const a of list) if (memo.entered[a.address]?.status !== eff(a)) memo.entered[a.address] = { status: eff(a), seq: a.seq };
+     const recent = (x, y) => memo.entered[y.address].seq - memo.entered[x.address].seq;
+-    // Done -> Working / Needs you: leave a folding ghost in Done, then draw the card in.
++    // Any column change: leave a folding ghost in the old column, then draw the card in.
+     for (const a of list) {
+       const prev = memo.slot[a.address];
+       const cur = STATES.find((s) => inCol(a, s))?.key;
+-      if (prev?.col !== "done" || (cur !== "working" && cur !== "blocked") || memo.fx[a.address]) continue;
++      if (!prev || !cur || prev.col === cur || memo.fx[a.address]) continue;
+       const ver = ++memo.fxv;
+-      const g = { kind: "exit", phase: "start", ver, a: { ...a }, k: prev.k };
++      const g = { kind: "exit", phase: "start", ver, a: { ...a }, k: prev.k, col: prev.col };
+       const e = { kind: "enter", phase: "start", ver };
+       memo.ghosts[a.address] = g; memo.fx[a.address] = e;
+       const t = this.acx.timer;
+@@ -255,7 +255,7 @@
+       cards.forEach((a, k) => {
+         const old = memo.slot[a.address];
+         // A ghost still standing in this column keeps its slot.
+-        const held = Object.values(memo.ghosts).filter((g) => state.key === "done" && g.k <= k).length;
++        const held = Object.values(memo.ghosts).filter((g) => g.col === state.key && g.k <= k).length;
+         k += held;
+         if (old && old.col === state.key && old.k !== k) {
+           memo.slide[a.address] = (old.k - k) * CARD_STEP;
+@@ -271,7 +271,7 @@
+           .when(i === shown.length - 1, (el) => el.child(div().flex_1()).child(toggle())))
+         .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(9).children((() => {
+           const els = this.groups(cards, state);
+-          if (state.key === "done") for (const g of Object.values(memo.ghosts).sort((x, y) => x.k - y.k))
++          for (const g of Object.values(memo.ghosts).filter((g) => g.col === state.key).sort((x, y) => x.k - y.k))
+             els.splice(Math.min(g.k, els.length), 0, this.card(g.a, state, false, g));
+           return els;
+         })()));
