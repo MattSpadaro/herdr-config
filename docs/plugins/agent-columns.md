@@ -38,6 +38,7 @@ Only the mods `agent-columns` (board, header and pane header by `props.role`), `
 14. `0014-slower-column-change.patch`: the column-change effect takes about 1.6 s: fold 520 ms, bar 450 ms, slide out 520 ms.
 15. `0015-column-change-everywhere.patch`: the fold-and-draw effect runs for every column change, from any column to any other; the ghost stays in the column the agent left.
 16. `0016-stable-card-id-after-effect.patch`: the entering card gets a fresh element id once, when the effect starts, and keeps it afterwards, so the end of the effect no longer rebuilds the card (visible hitch). Ghost ids are prefixed `ghost-` so they never share an id with the entering card.
+17. `0017-sequential-move-hover-clip.patch`: an arriving card takes no space until the ghost is gone; its slot then opens from 0 with the bar (height transition), slots carry the 9 px column gap themselves, and arriving cards are left out of the slide count (re-slotted silently when the effect ends). The column list has 2 px top padding so the hover nudge no longer clips the first card's top border.
 
 The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
 

@@ -1,0 +1,73 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -112,7 +112,11 @@
+     // Outer slot: carries the slide to a new place in the column (fresh id per move).
+     // Inner card: lifts 2 px on hover with a spring. Left edge is square (the color bar),
+     // right corners rounded; the bar replaces the left border.
+-    return div().id(`slot-${ghost ? "ghost-" : ""}${a.address}-${memo.ver[a.address] ?? 0}`).w_full().flex_none()
++    // The slot holds the column gap (9 px) itself, so an arriving card can open its space
++    // from 0 while its bar draws down, instead of the gap jumping at the start.
++    const slotH = fx?.kind === "enter" && fx.phase === "start" ? 0 : grouped ? 86 : CARD_STEP;
++    return div().id(`slot-${ghost ? "ghost-" : ""}${a.address}-${memo.ver[a.address] ?? 0}-${ghost ? ghost.ver : memo.cardVer[a.address] ?? 0}`)
++      .w_full().flex_none().h(slotH).transition("height", { duration: 450, easing: "ease-out" })
+       .relative().top(memo.slide[a.address] ?? 0).transition("top", { duration: 650, easing: "ease-out" })
+       .on_size_change((sz) => { if (sz.width > 0) memo.colW[state.key] = sz.width; })
+       .child(h_flex().id(`${ghost ? "ghost-" : ""}agent-${a.address}-v${ghost ? ghost.ver : memo.cardVer[a.address] ?? 0}`).h(86).rounded_r(7).overflow_hidden()
+@@ -164,7 +168,7 @@
+       depth ? div().w_full().pl(16).child(this.card(a, state, true)) : this.card(a, state, true),
+       ...kidsOf(a.address).flatMap((k) => nest(k, depth + 1)),
+     ];
+-    const frame = (children) => v_flex().w_full().flex_none().gap(6).p(6).rounded(10).bg(C.bg).border(1).border_color(state.color + "66").children(children);
++    const frame = (children) => v_flex().w_full().flex_none().mb(9).gap(6).p(6).rounded(10).bg(C.bg).border(1).border_color(state.color + "66").children(children);
+     const seen = new Set();
+     return cards.flatMap((a) => {
+       const p = parentOf[a.address];
+@@ -240,7 +244,8 @@
+       t.after(30, (cx) => { g.phase = "shrink"; cx.notify(); });
+       t.after(580, (cx) => { delete memo.ghosts[a.address]; e.phase = "bar"; cx.notify(); });
+       t.after(1050, (cx) => { e.phase = "grow"; cx.notify(); });
+-      t.after(1620, (cx) => { delete memo.fx[a.address]; cx.notify(); });
++      // Ending the effect counts the card in its column again; re-slot silently.
++      t.after(1620, (cx) => { delete memo.fx[a.address]; memo.silent = true; cx.notify(); });
+     }
+     setAgentOrder(shown.flatMap(s => list.filter(a => inCol(a, s)).sort(recent).map(a => a.address)));
+     const archivedCount = list.filter(archived).length;
+@@ -255,12 +260,15 @@
+       const cards = list.filter(a => inCol(a, state)).sort(recent);
+       // Same column, new slot: start the card at its old place (fresh element id) and let
+       // the top transition carry it to 0 on the next frame.
+-      cards.forEach((a, k) => {
++      // Arriving cards (effect running) open their own space with a height transition,
++      // so they are left out of the slot count; ghosts still standing keep theirs.
++      let arriving = 0;
++      cards.forEach((a, idx) => {
+         const old = memo.slot[a.address];
+-        // A ghost still standing in this column keeps its slot.
+-        const held = Object.values(memo.ghosts).filter((g) => g.col === state.key && g.k <= k).length;
+-        k += held;
+-        if (old && old.col === state.key && old.k !== k) {
++        if (memo.fx[a.address]) { arriving++; memo.slot[a.address] = { col: state.key, k: -1 }; return; }
++        let k = idx - arriving;
++        k += Object.values(memo.ghosts).filter((g) => g.col === state.key && g.k <= k).length;
++        if (!memo.silent && old && old.col === state.key && old.k !== -1 && old.k !== k) {
+           memo.slide[a.address] = (old.k - k) * CARD_STEP;
+           memo.ver[a.address] = (memo.ver[a.address] ?? 0) + 1;
+           this.sliding = true;
+@@ -272,7 +280,7 @@
+           .child(dot(state.color, 8)).child(div().text_size(13).font_semibold().text_color(C.ink).child(state.label))
+           .child(div().px(6).py(2).rounded(4).bg(state.wash).text_size(10).text_color(state.color).child(String(cards.length)))
+           .when(i === shown.length - 1, (el) => el.child(div().flex_1()).child(toggle())))
+-        .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(9).children((() => {
++        .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().pt(2).children((() => {
+           const els = this.groups(cards, state);
+           for (const g of Object.values(memo.ghosts).filter((g) => g.col === state.key).sort((x, y) => x.k - y.k))
+             els.splice(Math.min(g.k, els.length), 0, this.card(g.a, state, false, g));
+@@ -280,6 +288,7 @@
+         })()));
+     }));
+     // Next frame: drop the offsets so the cards glide to their new slots.
++    memo.silent = false;
+     if (this.sliding) this.acx.timer.after(30, (cx) => { memo.slide = {}; cx.notify(); });
+     return board;
+   }
