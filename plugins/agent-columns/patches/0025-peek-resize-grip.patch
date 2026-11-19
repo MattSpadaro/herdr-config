@@ -1,0 +1,84 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -181,10 +181,15 @@
+   return w > 100 && bottom - top > 100 ? { x, y: top, width: w / z, height: (bottom - top) / z } : null;
+ };
+ // A window (not a dialog): drag it by its header, it stays until closed with its own lights.
+-const openPeek = (a, big = false) => {
++// box: an explicit place and size (from the resize grip), else over the terminal.
++const openPeek = (a, big = false, box = null) => {
+   const g = peekColors(a);
+   const band = (i, child) => ({ id: `peek-b${i}`, type: "column", background: g[i], padding: 1, children: [child] });
+-  const r = big ? null : peekRect();
++  const r = box ?? (big ? null : peekRect());
++  const vp = globalThis.window?.viewport_size?.(), z = Number(settings().zoom) || 1;
++  const frac = (f) => (vp?.width ? { width: (f * vp.width) / z, height: (f * vp.height) / z } : null);
++  // Its size in zoom-1 px, so the grip knows where the top-left corner is.
++  geo.size = big ? frac(1) : r ? { width: r.width, height: r.height } : frac(0.8);
+   // One preview at a time: a new one (or the grow toggle) replaces the last.
+   if (geo.peek) closeOverlay(geo.peek);
+   geo.peek = openOverlay({
+@@ -193,6 +198,7 @@
+     layout: band(0, band(1, band(2, { id: "peek-body", type: "column", children: [
+       { id: "peek-head", type: "block", size: { px: 30 }, content: { mod: "agent-columns", props: { role: "peek", address: a.address, big } } },
+       { id: "peek-term", type: "block", content: { terminal: a.address } },
++      { id: "peek-foot", type: "block", size: { px: 12 }, content: { mod: "agent-columns", props: { role: "peek-foot", address: a.address } } },
+     ] }))),
+   });
+ };
+@@ -388,6 +394,45 @@
+   }
+   // Header of a peek dialog: like the pane header, plus a PRÉ-VISUALIZAÇÃO pill in the peek color.
+   // Yellow: grow to the whole window and back; green: go to the agent; blue: close the preview only.
++  // Bottom strip of a peek with a resize grip in the corner. Herdr can't resize an overlay and a
++  // mod only hears the pointer over itself, so pressing the grip opens a clear full-window layer
++  // that follows the pointer, draws the new outline, and reopens the peek at that size on release.
++  peekFoot() {
++    const t = theme();
++    return h_flex().size_full().bg(theme().raised).border_t(1).border_color(C.line)
++      .child(div().flex_1())
++      .child(div().id("peek-grip").w(16).h_full().flex().items_center().justify_center().cursor_nwse_resize()
++        .text_size(9).text_color(t.muted).hover((st) => st.text_color(t.foreground)).child("◢")
++        .on_mouse_down("left", (e, cx) => {
++          cx.stop_propagation();
++          const b = e.bounds, z = Number(settings().zoom) || 1;
++          if (!b || !geo.size) return;
++          const right = b.x + b.width + 3 * z, bottom = b.y + b.height + 3 * z;
++          openOverlay({ kind: "window", frame: "none", at: { x: 0, y: 0 }, width: 1, height: 1, mod: "agent-columns",
++            props: { role: "peek-resize", address: props().address,
++              left: right - geo.size.width * z, top: bottom - geo.size.height * z, x: right, y: bottom } });
++        }));
++  }
++  peekResize() {
++    const p = props(), z = Number(settings().zoom) || 1;
++    const a = allAgents().find((x) => x.address === p.address);
++    const at = this.at ?? { x: p.x, y: p.y };
++    const w = Math.max(320 * z, at.x - p.left), h = Math.max(200 * z, at.y - p.top);
++    const color = a ? peekColors(a)[1] : PEEK.lilac[1];
++    const done = (cx, apply) => {
++      cx.stop_propagation();
++      closeOverlay(p.overlay);
++      if (apply && a) openPeek(a, false, { x: p.left, y: p.top, width: w / z, height: h / z });
++    };
++    return div().id("peek-resize").size_full().relative().cursor_nwse_resize()
++      .on_mouse_move((e, cx) => { this.at = e.position; cx.notify(); })
++      .on_mouse_up("left", (_e, cx) => done(cx, true))
++      .on_mouse_down("left", (_e, cx) => done(cx, true))
++      .on_mouse_down("right", (_e, cx) => done(cx, false))
++      .child(div().absolute().left(p.left / z).top(p.top / z).w(w / z).h(h / z).border(2).border_color(color).bg(color + "1f").rounded(4))
++      .child(div().absolute().left(p.left / z + 10).top(p.top / z + 8).px(8).py(3).rounded(5).bg(color).text_size(11).text_color("#ffffff")
++        .child(`${Math.round(w / z)} × ${Math.round(h / z)} · solte para aplicar · botão direito cancela`));
++  }
+   peekHead() {
+     const t = theme();
+     const p = props();
+@@ -459,6 +504,8 @@
+     }
+     if (role === "card-menu") return this.cardMenu();
+     if (role === "peek") return this.peekHead();
++    if (role === "peek-foot") return this.peekFoot();
++    if (role === "peek-resize") return this.peekResize();
+     if (role === "pane") {
+       const p = panes().find(p => p.pane === props().pane);
+       const state = p ? STATES.find(s => s.key === eff(p)) : null;
