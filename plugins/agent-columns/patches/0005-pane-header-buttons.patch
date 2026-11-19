@@ -1,0 +1,27 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -59,6 +59,11 @@
+     this.search.on("change", (_e, cx) => { setShared("agent-columns.filter", this.search.value()); cx.notify(); });
+     cx.timer.every(30000, (cx) => cx.notify());
+   }
++  // Pane header traffic light: a colored dot that brightens on hover and runs a pane command.
++  light(id, color, tip, onClick) {
++    return div().id(id).size(12).rounded(12).flex_none().bg(color + "cc").cursor_pointer()
++      .hover((s) => s.bg(color)).tooltip(tip).on_click(onClick);
++  }
+   card(a, state, grouped = false) {
+     const old = this.observed[a.address];
+     if (!old || old.status !== eff(a)) this.observed[a.address] = { status: eff(a), at: Date.now() };
+@@ -151,7 +156,10 @@
+       const p = panes().find(p => p.pane === props().pane);
+       return h_flex().size_full().px(13).items_center().gap(7).bg(theme().raised).border_b(1).border_color(C.line)
+         .child(icon(p?.program, 14)).child(div().text_size(11).text_color(C.ink).child(p?.program?.name ?? "Terminal"))
+-        .child(div().flex_1()).child(dot(STATES.find(s => s.key === (p ? eff(p) : null))?.color ?? C.muted, 6));
++        .child(div().flex_1()).child(dot(STATES.find(s => s.key === (p ? eff(p) : null))?.color ?? C.muted, 6))
++        .child(div().w(4))
++        .child(this.light("pane-zoom", "#f5c518", p?.zoomed ? "Restore" : "Full screen", () => run("pane.zoom", { pane: props().pane })))
++        .child(this.light("pane-close", "#ef4444", "Close", () => run("pane.close", { pane: props().pane })));
+     }
+     const archive = STATES.find((s) => s.key === "archived");
+     const shown = STATES.filter((s) => s === archive ? showArchived() : s.key !== "error" || list.some((a) => inCol(a, s)));

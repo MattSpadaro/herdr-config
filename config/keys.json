@@ -1,5 +1,6 @@
 {
   "layout:chowdr-herdr-ctrl": {
-    "ctrl-shift-m": "chowdr-herdr-ctrl.toggle-chat"
+    "ctrl-shift-m": "chowdr-herdr-ctrl.toggle-chat",
+    "ctrl-t": "pane.split:right"
   }
 }
