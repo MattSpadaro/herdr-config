@@ -39,6 +39,8 @@ A plugin patch never references another plugin's layout ids. The base layout may
 | `panel`, `panel-body`; child `usage` | `agent-usage`, `tabs-asks` through `props.panels`, `agent-columns-chrome` through `props.usage` | `layout.select`, show, hide |
 | `usage-strip` | `agent-usage` (strip, `props.block`) | `layout.resize` to fit its rows |
 
+The root is a column: `main-row` (the whole window as before) over `sysstat`, a 28 px block with the external [sysstat](https://github.com/DarkoKuzmanovic/herdr-mods/tree/main/sysstat) mod (CPU, memory and GPU of the shown space's machine; installed by hand in `mods/sysstat`, not by `herdrcfg.py`). Root-only fields (`theme`, fonts, `titlebar`, `traffic_lights`, `preview`) stay on `root`.
+
 ## Repository-owned mods
 
 Glue between plugins that needs code, not just placement, is a mod owned by this repository in `config/mods/<name>/`, for example `chowdr-herdr-ctrl`, which drives the [per-terminal chat view](/architecture/chat-view.md), and `agent-usage`, the [usage strip and panel](/architecture/agent-usage.md), and `folder-picker`, the [new space dropdown](/architecture/folder-picker.md) opened by the Spaces `+`. It may read plugins' shared keys and select the base layout's ids. Plugins never depend on it.
