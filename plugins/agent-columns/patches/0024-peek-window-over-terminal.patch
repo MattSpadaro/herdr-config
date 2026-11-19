@@ -1,0 +1,59 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -161,11 +161,35 @@
+   lilac: ["#8b5cf6", "#a78bfa", "#c4b5fd"],
+ };
+ const peekColors = (a) => (["blocked", "error"].includes(eff(a)) ? PEEK.pink : eff(a) === "working" ? PEEK.orange : PEEK.lilac);
++// Where the live terminal sits, so the peek opens exactly over it: below the board (whose
++// bounds the board records as the pointer moves over it), inside the workspace padding, down to
++// the window bottom less the root blocks under the main row (the sysstat bar). Null outside Split
++// or before the first measure.
++const geo = { board: null, peek: null };
++const peekRect = () => {
++  const b = geo.board, vp = globalThis.window?.viewport_size?.();
++  const l = layout(), ws = node(l, "workspace");
++  if (!b || !vp?.height || !ws || ws.hidden || view() !== "split") return null;
++  const z = Number(settings().zoom) || 1;
++  const [py, px] = Array.isArray(ws.padding) ? ws.padding : [ws.padding ?? 0, ws.padding ?? 0];
++  const kids = l?.type === "column" ? l.children ?? [] : [];
++  const under = kids.slice(kids.findIndex((c) => node(c, "workspace")) + 1).filter((c) => !c.hidden)
++    .reduce((sum, c) => sum + (c.size?.px ?? 0) + (l.divider?.width ?? 0), 0);
++  const top = b.y + b.height + py * z, bottom = vp.height - (under + py) * z;
++  const x = b.x + px * z, w = b.width - 2 * px * z;
++  // `at` is in window px; width and height are scaled by the zoom like any layout size.
++  return w > 100 && bottom - top > 100 ? { x, y: top, width: w / z, height: (bottom - top) / z } : null;
++};
++// A window (not a dialog): drag it by its header, it stays until closed with its own lights.
+ const openPeek = (a, big = false) => {
+   const g = peekColors(a);
+   const band = (i, child) => ({ id: `peek-b${i}`, type: "column", background: g[i], padding: 1, children: [child] });
+-  openOverlay({
+-    kind: "dialog", frame: "none", width: big ? 1 : 0.8, height: big ? 1 : 0.8,
++  const r = big ? null : peekRect();
++  // One preview at a time: a new one (or the grow toggle) replaces the last.
++  if (geo.peek) closeOverlay(geo.peek);
++  geo.peek = openOverlay({
++    kind: "window", frame: "none",
++    ...(big ? { at: { x: 0, y: 0 }, width: 1, height: 1 } : r ? { at: { x: r.x, y: r.y }, width: r.width, height: r.height } : { width: 0.8, height: 0.8 }),
+     layout: band(0, band(1, band(2, { id: "peek-body", type: "column", children: [
+       { id: "peek-head", type: "block", size: { px: 30 }, content: { mod: "agent-columns", props: { role: "peek", address: a.address, big } } },
+       { id: "peek-term", type: "block", content: { terminal: a.address } },
+@@ -237,7 +261,7 @@
+     const spring = { response: 380, damping: 0.55 };
+     return div().id(id).size(18).flex_none().flex().items_center().justify_center().rounded(18).cursor_pointer()
+       .hover((s) => s.bg(color + "33")).tooltip(tip)
+-      .on_mouse_down("left", (_e, cx) => { if (!this.pop) { this.press = id; cx.notify(); } })
++      .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); if (!this.pop) { this.press = id; cx.notify(); } })
+       .on_click((_e, cx) => {
+         if (this.pop) return;
+         this.press = null; this.pop = id; cx.notify();
+@@ -481,7 +505,7 @@
+       .child(showArchived() ? "Hide archived" : `Archived (${archivedCount})`)
+       .on_click(() => setShared("agent-columns.archived", !showArchived()));
+     this.sliding = false;
+-    const board = h_flex().size_full().px(24).py(17).gap(16).bg(C.bg).children(shown.map((state, i) => {
++    const board = h_flex().id("board").on_mouse_move((e) => { if (e.bounds) geo.board = e.bounds; }).size_full().px(24).py(17).gap(16).bg(C.bg).children(shown.map((state, i) => {
+       const cards = list.filter(a => inCol(a, state)).sort(recent);
+       // Same column, new slot: start the card at its old place (fresh element id) and let
+       // the top transition carry it to 0 on the next frame.
