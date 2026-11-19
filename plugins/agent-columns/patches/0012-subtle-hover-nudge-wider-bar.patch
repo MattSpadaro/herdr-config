@@ -1,0 +1,25 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -103,11 +103,18 @@
+     return div().id(`slot-${a.address}-${memo.ver[a.address] ?? 0}`).w_full().flex_none()
+       .relative().top(memo.slide[a.address] ?? 0).transition("top", { duration: 650, easing: "ease-out" })
+       .child(h_flex().id(`agent-${a.address}`).w_full().h(86).rounded_r(7).overflow_hidden()
+-      .relative().top(0).spring("top", { response: 220, damping: 0.6 })
++      // Hover nudge: on pointer entry the card eases up 1 px and springs straight back,
++      // a brief reaction rather than a lifted state.
++      .relative().top(this.nudge === a.address ? -1 : 0).spring("top", { response: 260, damping: 0.75 })
++      .on_hover((over, cx) => {
++        if (!over || this.nudge) return;
++        this.nudge = a.address; cx.notify();
++        cx.timer.after(110, (cx) => { this.nudge = null; cx.notify(); });
++      })
+       .bg(unseen ? state.color + "1a" : C.white).border(1).border_l(0).border_color(ring).cursor_pointer()
+-      .hover(s => s.border_color(state.color).top(-2))
++      .hover(s => s.border_color(state.color))
+       .on_click(() => { run("agent.focus", { terminal: a.address }); if (view() === "board") setView("split"); })
+-      .child(div().w(3).h_full().bg(state.color).flex_none())
++      .child(div().w(5).h_full().bg(state.color).flex_none())
+       .child(v_flex().flex_1().min_w(0).px(12).py(10).gap(7)
+         .child(h_flex().gap(7).items_center().text_size(10).text_color(C.muted)
+           .child(icon(a.program, 15)).child(div().truncate().child(a.program.name)).child(div().flex_1())

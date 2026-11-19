@@ -33,6 +33,7 @@ Only the mods `agent-columns` (board, header and pane header by `props.role`), `
 9. `0009-newest-card-on-top.patch`: each column lists the agent that entered it most recently first (the `seq` recorded when its column changed); the agent order follows. The pane light pops to 11 px instead of 14.
 10. `0010-card-slide-and-focus-ring.patch`: a card that changes slot within its column glides from its old place (fresh element id, `top` offset, 420 ms ease-out transition). The focused agent keeps a ring in its column color. Seen/entered/slot memory lives at module level, so it survives the board being hidden (not a reload).
 11. `0011-card-hover-lift-square-left.patch`: the slide moves to an outer slot (650 ms ease-out); the inner card lifts 2 px on hover with a spring (response 220 ms, damping 0.6). Cards are square on the left (the color bar replaces the left border) and rounded on the right, fixing the rounded border drawn around the square bar.
+12. `0012-subtle-hover-nudge-wider-bar.patch`: hover no longer holds the card up; on pointer entry it springs up 1 px for 110 ms and back (response 260 ms, damping 0.75). The color bar is 5 px.
 
 The former layout patches (`0001-monokai-theme`, `0002-asks-panel-layout`) were folded into the base layout by [ADR 0005](/decisions/0005-base-layout-integration-point.md).
 
