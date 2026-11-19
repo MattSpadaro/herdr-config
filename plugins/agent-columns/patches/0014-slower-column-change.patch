@@ -1,0 +1,34 @@
+diff -ruN -x gpui-kit.d.ts -x jsconfig.json a/mods/agent-columns/main.js b/mods/agent-columns/main.js
+--- a/mods/agent-columns/main.js
++++ b/mods/agent-columns/main.js
+@@ -118,7 +118,7 @@
+       .child(h_flex().id(`agent-${a.address}${fx ? `-fx${fx.ver}` : ""}`).h(86).rounded_r(7).overflow_hidden()
+       .when(fxW === null, (el) => el.w_full())
+       .when(fxW !== null, (el) => el.w(fxW).flex_none().items_start()
+-        .transition("width", { duration: 380, easing: fx.kind === "exit" ? "ease-in" : "ease-out" }))
++        .transition("width", { duration: 520, easing: fx.kind === "exit" ? "ease-in" : "ease-out" }))
+       // Hover nudge: on pointer entry the card eases up 1 px and springs straight back,
+       // a brief reaction rather than a lifted state.
+       .relative().top(this.nudge === a.address ? -1 : 0).spring("top", { response: 340, damping: 0.75 })
+@@ -131,7 +131,7 @@
+       .hover(s => s.border_color(state.color))
+       .on_click(() => { run("agent.focus", { terminal: a.address }); if (view() === "board") setView("split"); })
+       .child(div().id(`bar-${a.address}${fx ? `-fx${fx.ver}` : ""}`).w(BAR).h(barH).bg(state.color).flex_none()
+-        .transition("height", { duration: 320, easing: "ease-out" }))
++        .transition("height", { duration: 450, easing: "ease-out" }))
+       .child(v_flex().when(fxW === null, (el) => el.flex_1()).when(fxW !== null, (el) => el.w(W - BAR).flex_none()).min_w(0).px(12).py(10).gap(7)
+         .child(h_flex().gap(7).items_center().text_size(10).text_color(C.muted)
+           .child(icon(a.program, 15)).child(div().truncate().child(a.program.name)).child(div().flex_1())
+@@ -235,9 +235,9 @@
+       memo.ghosts[a.address] = g; memo.fx[a.address] = e;
+       const t = this.acx.timer;
+       t.after(30, (cx) => { g.phase = "shrink"; cx.notify(); });
+-      t.after(420, (cx) => { delete memo.ghosts[a.address]; e.phase = "bar"; cx.notify(); });
+-      t.after(760, (cx) => { e.phase = "grow"; cx.notify(); });
+-      t.after(1160, (cx) => { delete memo.fx[a.address]; cx.notify(); });
++      t.after(580, (cx) => { delete memo.ghosts[a.address]; e.phase = "bar"; cx.notify(); });
++      t.after(1050, (cx) => { e.phase = "grow"; cx.notify(); });
++      t.after(1620, (cx) => { delete memo.fx[a.address]; cx.notify(); });
+     }
+     setAgentOrder(shown.flatMap(s => list.filter(a => inCol(a, s)).sort(recent).map(a => a.address)));
+     const archivedCount = list.filter(archived).length;
